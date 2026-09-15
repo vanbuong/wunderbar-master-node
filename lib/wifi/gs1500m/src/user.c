@@ -42,7 +42,7 @@ gs_user_state_t gs_user_poll(gs_user_t *u)
 		break;
 
 	case GS_USER_INIT:
-		id = gs_wifi_init(5000U);
+		id = gs_wifi_init(8000U);
 		u->last_msg = id;
 		if (id == GS_MSG_OK) {
 			u->state = GS_USER_JOIN;

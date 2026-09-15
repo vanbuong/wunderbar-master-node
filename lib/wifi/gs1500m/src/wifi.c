@@ -98,6 +98,7 @@ gs_msg_id_t gs_wifi_init(uint32_t ready_timeout_ms)
 	const gs_platform_t *p = gs_platform_get();
 	uint32_t start;
 	gs_msg_id_t id;
+	bool saw_boot = false;
 
 	if (!p) {
 		return GS_MSG_ERROR;
@@ -112,20 +113,22 @@ gs_msg_id_t gs_wifi_init(uint32_t ready_timeout_ms)
 		p->pgm_set(false, p->ctx); /* idle / deasserted */
 	}
 
-	/* Hardware reset pulse (active low). */
+	/* Hardware reset pulse (active low). Hold longer so the module
+	 * actually reboots; GS1500M S2W can take >1s after release. */
 	if (p->reset_set) {
 		p->reset_set(true, p->ctx);
-		delay_ms(50);
+		delay_ms(100);
 		p->reset_set(false, p->ctx);
 	}
 
-	/* Wait for welcome / Serial2WiFi banner (optional). */
+	/* Wait for welcome / Serial2WiFi banner (optional but useful). */
 	start = now_ms();
 	while ((now_ms() - start) < ready_timeout_ms) {
 		uint8_t b;
 		if (p->uart_read && p->uart_read(&b, 1, 20U, p->ctx) > 0) {
 			gs_msg_id_t mid = gs_at_process_byte(b);
 			if (mid == GS_MSG_WELCOME || mid == GS_MSG_APP_RESET) {
+				saw_boot = true;
 				break;
 			}
 		} else {
@@ -133,18 +136,31 @@ gs_msg_id_t gs_wifi_init(uint32_t ready_timeout_ms)
 		}
 	}
 
+	/* Extra settle if no banner was seen. */
+	if (!saw_boot) {
+		delay_ms(500);
+	}
+
 	/* Nudge + flush. */
 	(void)gs_at_write((const uint8_t *)"\r\n", 2U);
 	delay_ms(50);
 	gs_at_flush();
 
-	id = gs_wifi_soft_reset();
-	if (id != GS_MSG_OK && id != GS_MSG_WELCOME && id != GS_MSG_APP_RESET &&
-	    id != GS_MSG_TIMEOUT) {
-		/* Some firmwares only print a banner after RESET. */
+	/* Probe link before soft-reset. */
+	id = gs_at_send_cmd("AT\r\n", 2000U);
+	if (id != GS_MSG_OK) {
+		id = gs_wifi_soft_reset();
+		if (id != GS_MSG_OK && id != GS_MSG_WELCOME && id != GS_MSG_APP_RESET &&
+		    id != GS_MSG_TIMEOUT) {
+			/* Keep going; many firmwares only print a banner. */
+		}
+		delay_ms(500);
+		gs_at_flush();
+		id = gs_at_send_cmd("AT\r\n", 3000U);
+		if (id != GS_MSG_OK) {
+			return id;
+		}
 	}
-	delay_ms(200);
-	gs_at_flush();
 
 	id = gs_wifi_echo(false);
 	if (id != GS_MSG_OK) {

@@ -20,9 +20,15 @@
 #ifndef GS_UART
 #define GS_UART UART0
 #endif
+/* MK64/K24: UART0_CLK_SRC is the core/system clock (see fsl_clock.h), not bus. */
 #ifndef GS_UART_CLK_FREQ
-#define GS_UART_CLK_FREQ (CLOCK_GetFreq(kCLOCK_BusClk))
+#define GS_UART_CLK_FREQ (CLOCK_GetFreq(UART0_CLK_SRC))
 #endif
+
+static uint32_t gs_uart_src_hz(void)
+{
+	return CLOCK_GetFreq(UART0_CLK_SRC);
+}
 
 static int freertos_uart_write(const uint8_t *data, size_t len, void *ctx)
 {
@@ -121,14 +127,26 @@ int gs_platform_freertos_init(gs_platform_t *out)
 	PORT_SetPinMux(PORTD, GS_PIN_UART_RX_NUM, kPORT_MuxAlt3);
 	PORT_SetPinMux(PORTD, GS_PIN_UART_TX_NUM, kPORT_MuxAlt3);
 
-	PORT_SetPinMux(PORTD, GS_PIN_RESET_NUM, kPORT_MuxAsGpio);
+	/* RESET as open-drain (active-low); external pull-up when released. */
+	{
+		const port_pin_config_t od = {
+			.pullSelect = kPORT_PullDisable,
+			.slewRate = kPORT_FastSlewRate,
+			.passiveFilterEnable = kPORT_PassiveFilterDisable,
+			.openDrainEnable = kPORT_OpenDrainEnable,
+			.driveStrength = kPORT_LowDriveStrength,
+			.mux = kPORT_MuxAsGpio,
+			.lockRegister = kPORT_UnlockRegister,
+		};
+		PORT_SetPinConfig(PORTD, GS_PIN_RESET_NUM, &od);
+	}
 	PORT_SetPinMux(PORTE, GS_PIN_PGM_NUM, kPORT_MuxAsGpio);
 	PORT_SetPinMux(PORTA, GS_PIN_INTF_SEL_NUM, kPORT_MuxAsGpio);
 	PORT_SetPinMux(PORTB, GS_PIN_RTC_OUT_NUM, kPORT_MuxAsGpio);
 	PORT_SetPinMux(PORTD, GS_PIN_ALARM1_NUM, kPORT_MuxAsGpio);
 	PORT_SetPinMux(PORTD, GS_PIN_SPI_IRQ_NUM, kPORT_MuxAsGpio);
 
-	out_cfg.outputLogic = 1U; /* release reset */
+	out_cfg.outputLogic = 1U; /* release reset (OD high-Z + pull-up) */
 	GPIO_PinInit(GPIOD, GS_PIN_RESET_NUM, &out_cfg);
 	out_cfg.outputLogic = GS_PGM_IDLE_LEVEL;
 	GPIO_PinInit(GPIOE, GS_PIN_PGM_NUM, &out_cfg);
@@ -143,7 +161,8 @@ int gs_platform_freertos_init(gs_platform_t *out)
 	uart_config.baudRate_Bps = GS_UART_BAUD_DEFAULT;
 	uart_config.enableTx = true;
 	uart_config.enableRx = true;
-	(void)UART_Init(GS_UART, &uart_config, GS_UART_CLK_FREQ);
+	(void)UART_Init(GS_UART, &uart_config, gs_uart_src_hz());
+
 
 	if (out) {
 		memset(out, 0, sizeof(*out));

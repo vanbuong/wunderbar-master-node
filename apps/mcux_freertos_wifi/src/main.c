@@ -10,10 +10,12 @@
 
 #include "board.h"
 #include "fsl_gpio.h"
+#include "fsl_clock.h"
 #include "wb_log.h"
 
 #include "gs1500m/wifi.h"
 #include "gs1500m/user.h"
+#include "gs1500m/pins.h"
 #include "gs_platform_freertos.h"
 
 #include "FreeRTOS.h"
@@ -123,6 +125,20 @@ void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts)
 }
 #endif
 
+static const char *prvMsgName(gs_msg_id_t id)
+{
+	switch (id) {
+	case GS_MSG_NONE: return "NONE";
+	case GS_MSG_OK: return "OK";
+	case GS_MSG_ERROR: return "ERROR";
+	case GS_MSG_TIMEOUT: return "TIMEOUT";
+	case GS_MSG_WELCOME: return "WELCOME";
+	case GS_MSG_APP_RESET: return "APP_RESET";
+	case GS_MSG_CONNECT: return "CONNECT";
+	default: return "?";
+	}
+}
+
 static const char *prvStateName(gs_user_state_t st)
 {
 	switch (st) {
@@ -158,6 +174,12 @@ static void prvWifiTask(void *pvParameters)
 		}
 	}
 
+	WB_LOGI("UART0 %u baud, src=%u Hz, INTF_SEL=%u PGM_idle=%u",
+		(unsigned)GS_UART_BAUD_DEFAULT,
+		(unsigned)CLOCK_GetFreq(UART0_CLK_SRC),
+		(unsigned)GS_INTF_SEL_UART_LEVEL,
+		(unsigned)GS_PGM_IDLE_LEVEL);
+
 	gs_user_init(&s_user, &cfg);
 	WB_LOGI("GS1500M bring-up starting (ssid %s)",
 		(cfg.ssid && cfg.ssid[0]) ? cfg.ssid : "(none)");
@@ -165,8 +187,12 @@ static void prvWifiTask(void *pvParameters)
 	for (;;) {
 		gs_user_state_t st = gs_user_poll(&s_user);
 		if (st != prev) {
-			WB_LOGI("wifi SM: %s (msg=%d)", prvStateName(st),
-				(int)s_user.last_msg);
+			WB_LOGI("wifi SM: %s (msg=%d %s)", prvStateName(st),
+				(int)s_user.last_msg, prvMsgName(s_user.last_msg));
+			if (st == GS_USER_ERROR) {
+				const char *line = gs_at_last_line();
+				WB_LOGE("last AT line: '%s'", line ? line : "");
+			}
 			prev = st;
 		}
 
