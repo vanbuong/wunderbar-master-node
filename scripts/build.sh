@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Build WunderBar master blinky for Zephyr, FreeRTOS, or both.
 # Each OS produces USB CDC and SEGGER RTT images (four ELFs for "all").
+# Unit tests: Unity (host) + Zephyr ztest (unit_testing).
 #
-#   ./scripts/build.sh              # all four
+#   ./scripts/build.sh              # all four images
 #   ./scripts/build.sh zephyr
 #   ./scripts/build.sh freertos
+#   ./scripts/build.sh test         # Unity + ztest
 #
 # Zephyr: west init -l requires a sibling workspace whose project directory
 # is named wunderbar-master-node. This script creates $WB_WEST_WORKSPACE
@@ -111,6 +113,38 @@ build_freertos() {
   echo "FreeRTOS RTT image: $out_rtt/wunderbar_freertos_blinky.elf"
 }
 
+run_tests() {
+  command -v cmake >/dev/null || die "cmake not found"
+  command -v ninja >/dev/null || die "ninja not found"
+  command -v gcc >/dev/null || die "host gcc not found"
+  command -v west >/dev/null || die "west not found (pip install west)"
+
+  local unity="${UNITY_PATH:-$ROOT/.deps/unity}"
+  if [[ ! -f "$unity/src/unity.c" ]]; then
+    echo "Fetching Unity into $unity"
+    "$ROOT/scripts/fetch_unity.sh" "$unity"
+  fi
+
+  local out_unity="${UNITY_BUILD_DIR:-$ROOT/build-unity}"
+  echo "Building Unity tests (wb_log) -> $out_unity"
+  cmake -S "$ROOT/tests/unity" -B "$out_unity" -G Ninja -DUNITY_PATH="$unity"
+  cmake --build "$out_unity" --parallel "$JOBS"
+  ctest --test-dir "$out_unity" --output-on-failure
+  echo "Unity tests OK"
+
+  if [[ -d /opt/zephyr-sdk-1.0.1 ]]; then
+    export ZEPHYR_SDK_INSTALL_DIR="${ZEPHYR_SDK_INSTALL_DIR:-/opt/zephyr-sdk-1.0.1}"
+    export ZEPHYR_TOOLCHAIN_VARIANT="${ZEPHYR_TOOLCHAIN_VARIANT:-zephyr}"
+  fi
+
+  ensure_west_workspace
+
+  local out_ztest="${ZTEST_BUILD_DIR:-$ROOT/build-ztest}"
+  echo "Building Zephyr ztest (wb_log) -> $out_ztest"
+  west build -b unit_testing "$ROOT/tests/ztest/wb_log" -d "$out_ztest" -t run
+  echo "ztest OK"
+}
+
 case "$TARGET" in
   all|both)
     build_zephyr
@@ -122,7 +156,10 @@ case "$TARGET" in
   freertos|mcux)
     build_freertos
     ;;
+  test|tests)
+    run_tests
+    ;;
   *)
-    die "unknown target '$TARGET' (use: all | zephyr | freertos)"
+    die "unknown target '$TARGET' (use: all | zephyr | freertos | test)"
     ;;
 esac

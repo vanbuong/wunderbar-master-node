@@ -3,14 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * WunderBar master blinky — LED on PTA29 via Zephyr GPIO.
- *
- * Default image: USB CDC ACM console (/dev/ttyACM* or COMx).
- * RTT image (rtt.conf + rtt.overlay): SEGGER RTT via J-Link.
+ * Logs via wb_log → stdout → USB CDC ACM or SEGGER RTT console.
  */
 
-#include <stdio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
+
+#include "wb_log.h"
 
 #if DT_HAS_CHOSEN(zephyr_console) && \
 	DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_console), zephyr_cdc_acm_uart)
@@ -42,7 +41,6 @@ static void wait_for_dtr(void)
 		return;
 	}
 
-	/* Don't block forever: LED must still blink if no host is attached. */
 	while (!dtr && waited < DTR_WAIT_MS) {
 		(void)uart_line_ctrl_get(cons, UART_LINE_CTRL_DTR, &dtr);
 		k_msleep(100);
@@ -56,22 +54,24 @@ int main(void)
 	int ret;
 	bool on = false;
 
+	wb_log_init(wb_log_stdio_backend(), WB_LOG_INFO);
+
 	if (!gpio_is_ready_dt(&led)) {
-		printf("LED GPIO device not ready\n");
+		WB_LOGE("LED GPIO device not ready");
 		return 0;
 	}
 
 	ret = gpio_pin_configure_dt(&led, GPIO_OUTPUT_INACTIVE);
 	if (ret < 0) {
-		printf("Failed to configure LED (%d)\n", ret);
+		WB_LOGE("Failed to configure LED (%d)", ret);
 		return 0;
 	}
 
 #if CONSOLE_IS_USB_CDC
 	wait_for_dtr();
-	printf("WunderBar blinky on PTA29 (Zephyr USB)\n");
+	WB_LOGI("WunderBar blinky on PTA29 (Zephyr USB)");
 #else
-	printf("WunderBar blinky on PTA29 (Zephyr RTT)\n");
+	WB_LOGI("WunderBar blinky on PTA29 (Zephyr RTT)");
 #endif
 
 	while (1) {
@@ -81,7 +81,7 @@ int main(void)
 		}
 
 		on = !on;
-		printf("LED %s\n", on ? "ON" : "OFF");
+		WB_LOGI("LED %s", on ? "ON" : "OFF");
 		k_msleep(SLEEP_TIME_MS);
 	}
 

@@ -42,9 +42,12 @@ Do **not** copy FRDM-K64F’s default **50 MHz** EXTAL settings. This module use
 boards/relayr/wunderbar_master/   Zephyr HWMv2 board (12 MHz + PTA29 LED)
 apps/zephyr_blinky/               Zephyr CMake blinky (USB CDC + RTT images)
 apps/mcux_freertos_blinky/        MCUXpresso SDK + FreeRTOS CMake blinky
+lib/log/                          Portable wb_log module (level + backends)
+tests/unity/                      Unity host unit tests for wb_log
+tests/ztest/wb_log/               Zephyr ztest suite for wb_log
 west.yml                          Zephyr west manifest (v4.4.2)
-scripts/                          Host build helpers (both OSes, USB + RTT)
-.github/workflows/build.yml       CI: four images (Zephyr/FreeRTOS × USB/RTT)
+scripts/                          Host build helpers (firmware + tests)
+.github/workflows/build.yml       CI: four images + Unity + ztest
 ```
 
 LED: **PTA29** (`GPIOA` pin 29). Default polarity is active-high; flip it in the DTS / `LED_ACTIVE_HIGH` if your LED is wired active-low.
@@ -63,6 +66,7 @@ From this repository, after installing west, CMake, Ninja, and an ARM GCC (Zephy
 ./scripts/build.sh          # all four images (Zephyr/FreeRTOS × USB/RTT)
 ./scripts/build.sh zephyr   # Zephyr USB + RTT
 ./scripts/build.sh freertos # MCUX + FreeRTOS USB + RTT
+./scripts/build.sh test     # Unity (host) + Zephyr ztest
 ```
 
 Outputs:
@@ -74,7 +78,24 @@ Outputs:
 | FreeRTOS USB CDC | `build-freertos/wunderbar_freertos_blinky.elf` |
 | FreeRTOS RTT | `build-freertos-rtt/wunderbar_freertos_blinky.elf` |
 
-GitHub Actions (`.github/workflows/build.yml`) builds the same four images on every push/PR.
+GitHub Actions builds the four images and runs **Unity** + **ztest** on every push/PR.
+
+### Log module (`lib/log`)
+
+Both firmwares use **`wb_log`** (`WB_LOGI` / `WB_LOGE` / …). Messages look like `[I] LED ON` and go through a pluggable backend:
+
+| Backend | Use |
+|---------|-----|
+| `wb_log_stdio_backend()` | Firmware — `fwrite(stdout)` → FreeRTOS `_write` (USB/RTT) or Zephyr console |
+| `wb_log_stub_backend()` | Unit tests — capture buffer + `wb_log_stub_contains()` |
+
+```bash
+./scripts/build.sh test
+# or separately:
+./scripts/fetch_unity.sh
+cmake -S tests/unity -B build-unity -G Ninja && cmake --build build-unity && ctest --test-dir build-unity
+west build -b unit_testing tests/ztest/wb_log -t run
+```
 
 ---
 

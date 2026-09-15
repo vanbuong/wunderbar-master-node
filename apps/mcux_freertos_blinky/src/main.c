@@ -3,13 +3,14 @@
  * SPDX-License-Identifier: MIT
  *
  * FreeRTOS blinky for WunderBar master — LED on PTA29.
- * Logs: USB CDC (default) or SEGGER RTT (-DLOG_BACKEND=RTT).
+ * Logs via wb_log → stdout → USB CDC or SEGGER RTT (_write).
  */
 
 #include <stdio.h>
 
 #include "board.h"
 #include "fsl_gpio.h"
+#include "wb_log.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -32,7 +33,7 @@ static void prvLedInit(void)
     gpio_pin_config_t cfg = {
         .pinDirection = kGPIO_DigitalOutput,
 #if LED_ACTIVE_HIGH
-        .outputLogic = 1U, /* on immediately so bring-up is visible */
+        .outputLogic = 1U,
 #else
         .outputLogic = 0U,
 #endif
@@ -139,9 +140,7 @@ void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts)
     (void)rts;
 
     if (dtr) {
-        const char *msg = "WunderBar blinky on PTA29 (FreeRTOS USB)\r\n";
-        tud_cdc_write_str(msg);
-        tud_cdc_write_flush();
+        WB_LOGI("WunderBar blinky on PTA29 (FreeRTOS USB)");
     }
 }
 #endif
@@ -153,9 +152,9 @@ static void prvBlinkTask(void *pvParameters)
     for (;;) {
         prvLedToggle();
 #ifdef LOG_BACKEND_RTT
-        printf("LED toggle (FreeRTOS RTT)\r\n");
+        WB_LOGI("LED toggle (FreeRTOS RTT)");
 #else
-        printf("LED toggle (FreeRTOS USB)\r\n");
+        WB_LOGI("LED toggle (FreeRTOS USB)");
 #endif
         vTaskDelay(pdMS_TO_TICKS(500));
     }
@@ -165,10 +164,11 @@ int main(void)
 {
     BOARD_InitHardware();
     prvLedInit();
+    wb_log_init(wb_log_stdio_backend(), WB_LOG_INFO);
 
 #ifdef LOG_BACKEND_RTT
     SEGGER_RTT_Init();
-    printf("WunderBar blinky on PTA29 (FreeRTOS RTT)\r\n");
+    WB_LOGI("WunderBar blinky on PTA29 (FreeRTOS RTT)");
 #else
     if (xTaskCreate(prvUsbTask, "usb", USBD_STACK_SIZE, NULL,
                     configMAX_PRIORITIES - 1, NULL) != pdPASS) {
@@ -182,7 +182,5 @@ int main(void)
     }
 
     vTaskStartScheduler();
-
-    /* Scheduler only returns if heap is exhausted. Keep blinking. */
     prvBusyBlinkForever();
 }

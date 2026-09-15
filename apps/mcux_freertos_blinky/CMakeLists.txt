@@ -187,6 +187,11 @@ set(APP_SOURCES
   board/pin_mux.c
   board/board.c
 )
+
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../lib/log/wb_log.cmake)
+include_directories(${WB_LOG_INCLUDE_DIRS})
+list(APPEND APP_SOURCES ${WB_LOG_SOURCES})
+
 set(LOG_SOURCES)
 
 if(LOG_BACKEND_UPPER STREQUAL "RTT")

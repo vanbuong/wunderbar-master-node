@@ -41,6 +41,13 @@ jobs:
                -DEXTRA_CONF_FILE=rtt.conf \
                -DEXTRA_DTC_OVERLAY_FILE=rtt.overlay
 
+      - name: ztest wb_log
+        run: |
+          west build -b unit_testing \
+            wunderbar-master-node/tests/ztest/wb_log \
+            -d build-ztest \
+            -t run
+
       - name: Upload USB ELF
         uses: actions/upload-artifact@v4
         with:
@@ -69,7 +76,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            gcc-arm-none-eabi libnewlib-arm-none-eabi cmake ninja-build
+            gcc-arm-none-eabi libnewlib-arm-none-eabi gcc cmake ninja-build
 
       - name: Fetch MCUX SDK + FreeRTOS + TinyUSB + RTT
         run: ./scripts/fetch_mcux_sdk.sh "$PWD/.deps/mcux-sdk"
@@ -89,6 +96,13 @@ jobs:
             -DLOG_BACKEND=RTT \
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-freertos-rtt
+
+      - name: Unity wb_log
+        run: |
+          ./scripts/fetch_unity.sh "$PWD/.deps/unity"
+          cmake -S tests/unity -B build-unity -G Ninja -DUNITY_PATH="$PWD/.deps/unity"
+          cmake --build build-unity
+          ctest --test-dir build-unity --output-on-failure
 
       - name: Upload USB ELF
         uses: actions/upload-artifact@v4
