@@ -214,6 +214,7 @@ include_directories(
 add_executable(${PROJECT_NAME}.elf
   src/main.c
   src/usb_descriptors.c
+  src/syscalls.c
   board/clock_config.c
   board/pin_mux.c
   board/board.c
