@@ -30,6 +30,8 @@
 		zephyr,sram = &sram0;
 		zephyr,flash = &flash0;
 		zephyr,code-partition = &slot0_partition;
+		zephyr,console = &cdc_acm_uart0;
+		zephyr,shell-uart = &cdc_acm_uart0;
 	};
 
 	leds {
@@ -58,6 +60,16 @@
 &rtc {
 	status = "okay";
 	clock-frequency = <32768>;
+};
+
+zephyr_udc0: &usbotg {
+	compatible = "nxp,kinetis-usbd";
+	status = "okay";
+	num-bidir-endpoints = <8>;
+
+	cdc_acm_uart0: cdc_acm_uart0 {
+		compatible = "zephyr,cdc-acm-uart";
+	};
 };
 
 &gpioa {

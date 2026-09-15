@@ -49,6 +49,8 @@ scripts/                          Host build helpers (both images)
 
 LED: **PTA29** (`GPIOA` pin 29). Default polarity is active-high; flip it in the DTS / `LED_ACTIVE_HIGH` if your LED is wired active-low.
 
+USB: dedicated **USB0_DP / USB0_DM** (no extra pinmux). Both images enumerate as a **CDC ACM** serial port (`/dev/ttyACM*` on Linux, `COMx` on Windows). Baud rate is ignored.
+
 ---
 
 ## Build both (Zephyr + FreeRTOS)
@@ -106,6 +108,12 @@ west flash
 
 J-Link device string: `MK24FN1M0xxx12`.
 
+Plug the module USB into the host and open the CDC port to see `LED ON` / `LED OFF` (wait up to ~5 s after reset if you want the banner; the LED still blinks if nothing is attached):
+
+```bash
+picocom -b 115200 /dev/ttyACM0
+```
+
 ---
 
 ## 2) MCUXpresso SDK + FreeRTOS blinky
@@ -131,6 +139,8 @@ Separate bare-metal/SDK image that runs **FreeRTOS** and toggles PTA29.
 
 This app replaces the board clock files with WunderBar’s **12 MHz / 32.768 kHz** configuration in `apps/mcux_freertos_blinky/board/clock_config.*`.
 
+Early boot matches Zephyr: **do not write `RTC->CR`**, release **PMC ACKISO**, and disable **SYSMPU** (required for USB). `./scripts/fetch_mcux_sdk.sh` also clones **TinyUSB 0.17.0** for the CDC console.
+
 ### Build
 
 ```bash
@@ -148,6 +158,8 @@ cmake --build build
 ```
 
 Output: `build/wunderbar_freertos_blinky.elf` (or `build-freertos/` when using `scripts/build.sh`) plus `.hex` / `.bin`.
+
+USB CDC logs (`LED toggle (FreeRTOS)`) appear on the same host serial port as Zephyr after you open a terminal (DTR). The LED is turned on in `main` before the scheduler starts, then toggles every 500 ms.
 
 ---
 

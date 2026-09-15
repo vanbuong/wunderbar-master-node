@@ -1,12 +1,13 @@
-# WunderBar master — MCUXpresso SDK + FreeRTOS blinky (PTA29)
+# WunderBar master — MCUXpresso SDK + FreeRTOS blinky (PTA29) + USB CDC
 #
 # Prerequisites
 #   1. MCUXpresso SDK with devices/MK64F12, either:
 #        a) FRDM-K64F ARM-GCC zip from https://mcuxpresso.nxp.com/en/builder
 #           (include FreeRTOS), or
 #        b) GitHub sources via ../../scripts/fetch_mcux_sdk.sh
-#   2. arm-none-eabi-gcc on PATH (or set TOOLCHAIN_PREFIX).
-#   3. CMake >= 3.20 and Ninja (or MinGW Makefiles).
+#   2. TinyUSB 0.17.x (fetched by fetch_mcux_sdk.sh into .deps/src/tinyusb).
+#   3. arm-none-eabi-gcc on PATH (or set TOOLCHAIN_PREFIX).
+#   4. CMake >= 3.20 and Ninja (or MinGW Makefiles).
 #
 # Build
 #   ../../scripts/build.sh freertos
@@ -121,6 +122,7 @@ add_compile_definitions(
   CPU_${MCU_DEVICE}
   __STARTUP_CLEAR_BSS
   SDK_DEBUGCONSOLE=0
+  CFG_TUSB_MCU=OPT_MCU_KINETIS_K
 )
 
 include_directories(
@@ -178,14 +180,48 @@ set(FREERTOS_SOURCES
   ${FREERTOS_PATH}/portable/GCC/ARM_CM4F/port.c
 )
 
+if(NOT TINYUSB_PATH)
+  foreach(_tusb IN ITEMS
+      "${MCU_SDK_PATH}/middleware/tinyusb"
+      "${MCU_SDK_PATH}/../src/tinyusb"
+      "${MCU_SDK_PATH}/../tinyusb"
+      "${CMAKE_CURRENT_SOURCE_DIR}/../../.deps/src/tinyusb")
+    if(EXISTS "${_tusb}/src/tusb.c")
+      set(TINYUSB_PATH "${_tusb}")
+      break()
+    endif()
+  endforeach()
+endif()
+if(NOT TINYUSB_PATH)
+  message(FATAL_ERROR
+    "TinyUSB not found. Run ../../scripts/fetch_mcux_sdk.sh "
+    "or pass -DTINYUSB_PATH=/path/to/tinyusb")
+endif()
+
+set(TINYUSB_SOURCES
+  ${TINYUSB_PATH}/src/tusb.c
+  ${TINYUSB_PATH}/src/common/tusb_fifo.c
+  ${TINYUSB_PATH}/src/device/usbd.c
+  ${TINYUSB_PATH}/src/device/usbd_control.c
+  ${TINYUSB_PATH}/src/class/cdc/cdc_device.c
+  ${TINYUSB_PATH}/src/portable/nxp/khci/dcd_khci.c
+)
+
+include_directories(
+  ${TINYUSB_PATH}/src
+)
+
 add_executable(${PROJECT_NAME}.elf
   src/main.c
+  src/usb_descriptors.c
   board/clock_config.c
   board/pin_mux.c
+  board/board.c
   ${DEVICE_STARTUP}
   ${DEVICE_SYSTEM}
   ${SDK_DRIVERS}
   ${FREERTOS_SOURCES}
+  ${TINYUSB_SOURCES}
 )
 
 target_link_options(${PROJECT_NAME}.elf PRIVATE

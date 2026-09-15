@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Assemble an MCU_SDK_PATH tree for apps/mcux_freertos_blinky without the
 # MCUXpresso SDK Builder zip. Uses NXP's GitHub SDK 2.x sources + CMSIS +
-# FreeRTOS-Kernel.
+# FreeRTOS-Kernel + TinyUSB 0.17.0 (USB CDC console).
 #
 # Usage:
 #   ./scripts/fetch_mcux_sdk.sh [dest]
@@ -51,13 +51,21 @@ if [[ ! -d "$CACHE/FreeRTOS-Kernel/.git" ]]; then
          https://github.com/FreeRTOS/FreeRTOS-Kernel.git "$CACHE/FreeRTOS-Kernel"
 fi
 
+if [[ ! -d "$CACHE/tinyusb/.git" ]]; then
+  git clone --depth 1 --branch 0.17.0 \
+    https://github.com/hathach/tinyusb.git "$CACHE/tinyusb"
+fi
+
 ln -sfn "$CACHE/legacy-mcux-sdk/devices" "$DEST/devices"
 ln -sfn "$CACHE/legacy-mcux-sdk/drivers" "$DEST/drivers"
 ln -sfn "$CACHE/CMSIS_5/CMSIS" "$DEST/CMSIS"
 ln -sfn "$CACHE/FreeRTOS-Kernel" "$DEST/rtos/freertos/freertos-kernel"
+mkdir -p "$DEST/middleware"
+ln -sfn "$CACHE/tinyusb" "$DEST/middleware/tinyusb"
 
 echo "MCU_SDK_PATH=$DEST"
 test -d "$DEST/devices/MK64F12"
 test -f "$DEST/CMSIS/Core/Include/core_cm4.h"
 test -f "$DEST/rtos/freertos/freertos-kernel/tasks.c"
+test -f "$DEST/middleware/tinyusb/src/tusb.c"
 echo "SDK fetch OK"

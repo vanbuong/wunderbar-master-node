@@ -2,8 +2,10 @@
  * Copyright (c) 2026
  * SPDX-License-Identifier: MIT
  *
- * FreeRTOS blinky for WunderBar master — LED on PTA29.
+ * FreeRTOS blinky for WunderBar master — LED on PTA29, logs on USB CDC.
  */
+
+#include <stdio.h>
 
 #include "board.h"
 #include "fsl_gpio.h"
@@ -11,47 +13,154 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include "tusb.h"
+
 #ifndef LED_ACTIVE_HIGH
 #define LED_ACTIVE_HIGH 1
 #endif
+
+#define USBD_STACK_SIZE (configMINIMAL_STACK_SIZE * 4)
+#define BLINK_STACK_SIZE (configMINIMAL_STACK_SIZE + 128)
 
 static void prvLedInit(void)
 {
     gpio_pin_config_t cfg = {
         .pinDirection = kGPIO_DigitalOutput,
 #if LED_ACTIVE_HIGH
-        .outputLogic = 0U,
+        .outputLogic = 1U, /* on immediately so bring-up is visible */
 #else
-        .outputLogic = 1U,
+        .outputLogic = 0U,
 #endif
     };
 
     GPIO_PinInit(BOARD_LED_GPIO, BOARD_LED_GPIO_PIN, &cfg);
 }
 
+static void prvLedToggle(void)
+{
+    GPIO_PortToggle(BOARD_LED_GPIO, 1U << BOARD_LED_GPIO_PIN);
+}
+
+static void prvBusyBlinkForever(void)
+{
+    volatile uint32_t i;
+    for (;;) {
+        prvLedToggle();
+        for (i = 0; i < 800000U; i++) {
+        }
+    }
+}
+
+/* newlib-nano stdout/stderr → USB CDC. Drops bytes if the host is not open. */
+int _write(int fd, char *ptr, int len)
+{
+    int n = 0;
+
+    if ((fd != 1) && (fd != 2)) {
+        return -1;
+    }
+    if ((ptr == NULL) || (len <= 0)) {
+        return 0;
+    }
+    if (!tud_inited() || !tud_cdc_connected()) {
+        return len;
+    }
+
+    while (n < len) {
+        uint32_t avail = tud_cdc_write_available();
+        uint32_t chunk;
+
+        if (avail == 0U) {
+            tud_cdc_write_flush();
+            if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
+                vTaskDelay(1);
+            }
+            if (!tud_cdc_connected()) {
+                break;
+            }
+            continue;
+        }
+
+        chunk = (uint32_t)(len - n);
+        if (chunk > avail) {
+            chunk = avail;
+        }
+        n += (int)tud_cdc_write((uint8_t const *)ptr + n, chunk);
+        tud_cdc_write_flush();
+    }
+
+    return (n > 0) ? n : len;
+}
+
+static void prvUsbTask(void *pvParameters)
+{
+    (void)pvParameters;
+
+    tud_init(BOARD_TUD_RHPORT);
+
+    for (;;) {
+        tud_task();
+        tud_cdc_write_flush();
+    }
+}
+
 static void prvBlinkTask(void *pvParameters)
 {
     (void)pvParameters;
-    prvLedInit();
 
     for (;;) {
-        GPIO_PortToggle(BOARD_LED_GPIO, 1U << BOARD_LED_GPIO_PIN);
+        prvLedToggle();
+        printf("LED toggle (FreeRTOS)\r\n");
         vTaskDelay(pdMS_TO_TICKS(500));
+    }
+}
+
+void tud_mount_cb(void)
+{
+}
+
+void tud_umount_cb(void)
+{
+}
+
+void tud_suspend_cb(bool remote_wakeup_en)
+{
+    (void)remote_wakeup_en;
+}
+
+void tud_resume_cb(void)
+{
+}
+
+void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts)
+{
+    (void)itf;
+    (void)rts;
+
+    if (dtr) {
+        const char *msg = "WunderBar blinky on PTA29 (FreeRTOS)\r\n";
+        tud_cdc_write_str(msg);
+        tud_cdc_write_flush();
     }
 }
 
 int main(void)
 {
     BOARD_InitHardware();
+    prvLedInit();
 
-    if (xTaskCreate(prvBlinkTask, "blink", configMINIMAL_STACK_SIZE + 64, NULL,
+    if (xTaskCreate(prvUsbTask, "usb", USBD_STACK_SIZE, NULL,
+                    configMAX_PRIORITIES - 1, NULL) != pdPASS) {
+        prvBusyBlinkForever();
+    }
+
+    if (xTaskCreate(prvBlinkTask, "blink", BLINK_STACK_SIZE, NULL,
                     tskIDLE_PRIORITY + 1, NULL) != pdPASS) {
-        for (;;) {
-        }
+        prvBusyBlinkForever();
     }
 
     vTaskStartScheduler();
 
-    for (;;) {
-    }
+    /* Scheduler only returns if heap is exhausted. Keep blinking. */
+    prvBusyBlinkForever();
 }

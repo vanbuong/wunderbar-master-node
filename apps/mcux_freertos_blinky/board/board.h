@@ -15,11 +15,8 @@
 extern "C" {
 #endif
 
-static inline void BOARD_InitHardware(void)
-{
-    BOARD_InitBootPins();
-    BOARD_InitBootClocks();
-}
+void BOARD_InitHardware(void);
+void BOARD_InitUsb(void);
 
 #if defined(__cplusplus)
 }

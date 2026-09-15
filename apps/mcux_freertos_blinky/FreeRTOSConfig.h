@@ -17,7 +17,7 @@ extern uint32_t SystemCoreClock;
 #define configTICK_RATE_HZ                      ((TickType_t)1000)
 #define configMAX_PRIORITIES                    5
 #define configMINIMAL_STACK_SIZE                ((uint16_t)128)
-#define configTOTAL_HEAP_SIZE                   ((size_t)(24 * 1024))
+#define configTOTAL_HEAP_SIZE                   ((size_t)(48 * 1024))
 #define configMAX_TASK_NAME_LEN                 16
 #define configUSE_16_BIT_TICKS                  0
 #define configIDLE_SHOULD_YIELD                 1
@@ -46,7 +46,7 @@ extern uint32_t SystemCoreClock;
 #define configUSE_TIMERS                        1
 #define configTIMER_TASK_PRIORITY               (configMAX_PRIORITIES - 1)
 #define configTIMER_QUEUE_LENGTH                10
-#define configTIMER_TASK_STACK_DEPTH            (configMINIMAL_STACK_SIZE * 2)
+#define configTIMER_TASK_STACK_DEPTH            (configMINIMAL_STACK_SIZE * 3)
 
 #define configLIBRARY_LOWEST_INTERRUPT_PRIORITY         0xf
 #define configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY    2
