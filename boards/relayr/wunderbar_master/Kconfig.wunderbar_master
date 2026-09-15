@@ -1,0 +1,8 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD_WUNDERBAR_MASTER
+	select SOC_MK64F12
+	# Closest in-tree part number for the MK24FN1M0VDC12 121-XFBGA package.
+	# Same 1 MB flash / 256 KB SRAM / Cortex-M4F core used by FRDM-K64F / Hexiwear.
+	select SOC_PART_NUMBER_MK64FN1M0VDC12

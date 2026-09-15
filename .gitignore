@@ -35,6 +35,7 @@
 *.i*86
 *.x86_64
 *.hex
+*.bin
 
 # Debug files
 *.dSYM/
@@ -53,3 +54,22 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# Build / IDE / West workspace clones (sibling workspace layout)
+build/
+build-*/
+**/build/
+.west/
+../zephyr/
+# Do not ignore this repo's zephyr/module.yml
+cmake-build-*/
+.vscode/
+.idea/
+*.user
+.DS_Store
+Thumbs.db
+CMakeCache.txt
+CMakeFiles/
+*.ninja
+compile_commands.json
+

@@ -1,0 +1,6 @@
+board:
+  name: wunderbar_master
+  full_name: Relayr WunderBar Master Module
+  vendor: relayr
+  socs:
+    - name: mk64f12

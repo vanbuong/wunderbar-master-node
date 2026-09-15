@@ -1,0 +1,19 @@
+# West manifest for the WunderBar master (MK24FN1M0VDC12) Zephyr workspace.
+#
+#   mkdir wb-zephyr-workspace && cd wb-zephyr-workspace
+#   west init -l ../wunderbar-master-node
+#   west update
+
+manifest:
+  self:
+    path: wunderbar-master-node
+
+  remotes:
+    - name: zephyrproject-rtos
+      url-base: https://github.com/zephyrproject-rtos
+
+  projects:
+    - name: zephyr
+      remote: zephyrproject-rtos
+      revision: v4.4.2
+      import: true

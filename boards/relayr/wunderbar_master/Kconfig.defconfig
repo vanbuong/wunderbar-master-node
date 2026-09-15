@@ -1,0 +1,21 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: Apache-2.0
+
+if BOARD_WUNDERBAR_MASTER
+
+# 12 MHz crystal on EXTAL0/XTAL0 (Y1) with external 12 pF load capacitors.
+config OSC_XTAL0_FREQ
+	default 12000000
+
+# PLL: 12 MHz / (PRDIV+1) * (VDIV+24) = 12 / 3 * 30 = 120 MHz
+# Matches Hexiwear K64 (same 12 MHz crystal + 120 MHz PEE target).
+config MCG_PRDIV0
+	default 0x02
+
+config MCG_VDIV0
+	default 0x06
+
+config MCG_FCRDIV
+	default 1
+
+endif # BOARD_WUNDERBAR_MASTER
