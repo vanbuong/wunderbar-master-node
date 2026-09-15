@@ -73,15 +73,26 @@ Portable library: `lib/wifi/gs1500m` (AT parser, join, sockets, SSL, HTTP, MQTT 
 ./scripts/build.sh zephyr-wifi
 ```
 
-Optional compile-time credentials (do **not** commit secrets):
+#### Patchable SSID / PSK (no rebuild)
+
+Credentials sit in a **128-byte flash slot at `0x0007E000`** (magic `WBWIFIv1`, then SSID ≤32 and PSK ≤64). Build once, then patch the `.bin`:
+
+```bash
+./scripts/build.sh freertos-wifi
+./scripts/patch_wifi_cred.py build-freertos-wifi-rtt/wunderbar_freertos_wifi.bin \
+  --ssid MyNetwork --psk 'secret-pass'
+./scripts/patch_wifi_cred.py build-freertos-wifi-rtt/wunderbar_freertos_wifi.bin --show
+```
+
+Flash the patched `.bin` / `.elf`. At runtime the demo prefers the flash slot; if SSID is empty it falls back to compile-time `WB_WIFI_SSID` / `WB_WIFI_PSK` (or Zephyr `CONFIG_WB_WIFI_*`).
+
+Optional compile-time defaults (do **not** commit secrets):
 
 ```bash
 cmake -S apps/mcux_freertos_wifi -B build-freertos-wifi -G Ninja \
   -DMCU_SDK_PATH=$PWD/.deps/mcux-sdk -DLOG_BACKEND=USB \
   -DWB_WIFI_SSID=\"MySSID\" -DWB_WIFI_PSK=\"MyPSK\"
 ```
-
-Zephyr: `-DCONFIG_WB_WIFI_SSID=\"MySSID\" -DCONFIG_WB_WIFI_PSK=\"MyPSK\"` via west `EXTRA_CONF` / cmake defines.
 
 ---
 

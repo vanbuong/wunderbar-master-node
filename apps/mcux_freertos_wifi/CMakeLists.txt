@@ -26,7 +26,7 @@ project(wunderbar_freertos_wifi C ASM)
 set(ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 set(BOARD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../mcux_freertos_blinky/board")
 set(BLINKY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../mcux_freertos_blinky")
-
+include(${ROOT}/lib/wifi/cred/wb_wifi_cred.cmake)
 if(NOT MCU_SDK_PATH)
   message(FATAL_ERROR "Set -DMCU_SDK_PATH= to your MCUXpresso SDK root")
 endif()
@@ -89,6 +89,7 @@ add_compile_definitions(
   CPU_${MCU_DEVICE}
   __STARTUP_CLEAR_BSS
   SDK_DEBUGCONSOLE=0
+  WB_WIFI_CRED_FLASH_ADDR=${WB_WIFI_CRED_FLASH_ADDR}
 )
 
 if(DEFINED WB_WIFI_SSID)
@@ -167,8 +168,11 @@ include(${ROOT}/lib/log/wb_log.cmake)
 set(GS1500M_PORT freertos)
 include(${ROOT}/lib/wifi/gs1500m/gs1500m.cmake)
 
-include_directories(${WB_LOG_INCLUDE_DIRS} ${GS1500M_INCLUDE_DIRS} ${GS1500M_PORT_INCLUDE_DIRS})
-list(APPEND APP_SOURCES ${WB_LOG_SOURCES} ${GS1500M_SOURCES} ${GS1500M_PORT_SOURCES})
+include_directories(${WB_LOG_INCLUDE_DIRS} ${GS1500M_INCLUDE_DIRS} ${GS1500M_PORT_INCLUDE_DIRS}
+  ${WB_WIFI_CRED_INCLUDE_DIRS})
+list(APPEND APP_SOURCES ${WB_LOG_SOURCES} ${GS1500M_SOURCES} ${GS1500M_PORT_SOURCES}
+  ${WB_WIFI_CRED_SOURCES})
+
 
 set(LOG_SOURCES)
 
@@ -248,6 +252,7 @@ target_link_options(${PROJECT_NAME}.elf PRIVATE
   -Wl,-Map=${PROJECT_NAME}.map
   --specs=nano.specs
   --specs=nosys.specs
+  ${WB_WIFI_CRED_LINK_FLAGS}
 )
 
 target_link_libraries(${PROJECT_NAME}.elf PRIVATE m c nosys)

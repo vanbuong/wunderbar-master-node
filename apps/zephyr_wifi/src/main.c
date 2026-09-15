@@ -14,6 +14,7 @@
 #include "gs1500m/wifi.h"
 #include "gs1500m/user.h"
 #include "gs_platform_zephyr.h"
+#include "wb_wifi_cred.h"
 
 #if DT_HAS_CHOSEN(zephyr_console) && \
 	DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_console), zephyr_cdc_acm_uart)
@@ -97,10 +98,18 @@ int main(void)
 	}
 
 	memset(&cfg, 0, sizeof(cfg));
-	cfg.ssid = CONFIG_WB_WIFI_SSID;
-	cfg.psk = CONFIG_WB_WIFI_PSK;
+	if (wb_wifi_cred_ssid()) {
+		cfg.ssid = wb_wifi_cred_ssid();
+		cfg.psk = wb_wifi_cred_psk() ? wb_wifi_cred_psk() : "";
+	} else {
+		cfg.ssid = CONFIG_WB_WIFI_SSID;
+		cfg.psk = CONFIG_WB_WIFI_PSK;
+	}
 	gs_user_init(&s_user, &cfg);
 
+	WB_LOGI("cred slot @ 0x%08X magic=%s",
+		(unsigned)WB_WIFI_CRED_FLASH_ADDR,
+		wb_wifi_cred_valid() ? "ok" : "empty");
 	WB_LOGI("GS1500M bring-up (ssid %s)",
 		(cfg.ssid && cfg.ssid[0]) ? cfg.ssid : "(none)");
 

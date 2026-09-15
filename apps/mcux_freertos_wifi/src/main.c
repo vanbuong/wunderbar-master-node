@@ -17,6 +17,7 @@
 #include "gs1500m/user.h"
 #include "gs1500m/pins.h"
 #include "gs_platform_freertos.h"
+#include "wb_wifi_cred.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -163,8 +164,14 @@ static void prvWifiTask(void *pvParameters)
 	(void)pvParameters;
 
 	memset(&cfg, 0, sizeof(cfg));
-	cfg.ssid = WB_WIFI_SSID;
-	cfg.psk = WB_WIFI_PSK;
+	/* Prefer flash credential slot (patchable); else compile-time macros. */
+	if (wb_wifi_cred_ssid()) {
+		cfg.ssid = wb_wifi_cred_ssid();
+		cfg.psk = wb_wifi_cred_psk() ? wb_wifi_cred_psk() : "";
+	} else {
+		cfg.ssid = WB_WIFI_SSID;
+		cfg.psk = WB_WIFI_PSK;
+	}
 	cfg.use_limited_ap_on_fail = false;
 
 	if (gs_platform_freertos_init(&s_gs_plat) != 0) {
@@ -179,6 +186,10 @@ static void prvWifiTask(void *pvParameters)
 		(unsigned)CLOCK_GetFreq(UART0_CLK_SRC),
 		(unsigned)GS_INTF_SEL_UART_LEVEL,
 		(unsigned)GS_PGM_IDLE_LEVEL);
+	WB_LOGI("cred slot @ 0x%08X magic=%s ssid=%s",
+		(unsigned)WB_WIFI_CRED_FLASH_ADDR,
+		wb_wifi_cred_valid() ? "ok" : "empty",
+		(cfg.ssid && cfg.ssid[0]) ? cfg.ssid : "(none)");
 
 	gs_user_init(&s_user, &cfg);
 	WB_LOGI("GS1500M bring-up starting (ssid %s)",
