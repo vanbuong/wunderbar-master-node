@@ -7,7 +7,7 @@ on:
 
 jobs:
   zephyr:
-    name: Zephyr blinky
+    name: Zephyr blinky + WiFi
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -25,18 +25,34 @@ jobs:
           toolchains: arm-zephyr-eabi
           sdk-version: "1.0.1"
 
-      - name: Build USB CDC
+      - name: Build blinky USB CDC
         run: |
           west build -b wunderbar_master/mk64f12 \
             wunderbar-master-node/apps/zephyr_blinky \
             -d build-zephyr \
             -- -DBOARD_ROOT="${GITHUB_WORKSPACE}/wunderbar-master-node"
 
-      - name: Build SEGGER RTT
+      - name: Build blinky SEGGER RTT
         run: |
           west build -b wunderbar_master/mk64f12 \
             wunderbar-master-node/apps/zephyr_blinky \
             -d build-zephyr-rtt \
+            -- -DBOARD_ROOT="${GITHUB_WORKSPACE}/wunderbar-master-node" \
+               -DEXTRA_CONF_FILE=rtt.conf \
+               -DEXTRA_DTC_OVERLAY_FILE=rtt.overlay
+
+      - name: Build WiFi USB CDC
+        run: |
+          west build -b wunderbar_master/mk64f12 \
+            wunderbar-master-node/apps/zephyr_wifi \
+            -d build-zephyr-wifi \
+            -- -DBOARD_ROOT="${GITHUB_WORKSPACE}/wunderbar-master-node"
+
+      - name: Build WiFi SEGGER RTT
+        run: |
+          west build -b wunderbar_master/mk64f12 \
+            wunderbar-master-node/apps/zephyr_wifi \
+            -d build-zephyr-wifi-rtt \
             -- -DBOARD_ROOT="${GITHUB_WORKSPACE}/wunderbar-master-node" \
                -DEXTRA_CONF_FILE=rtt.conf \
                -DEXTRA_DTC_OVERLAY_FILE=rtt.overlay
@@ -48,7 +64,14 @@ jobs:
             -d build-ztest \
             -t run
 
-      - name: Upload USB ELF
+      - name: ztest gs1500m AT
+        run: |
+          west build -b unit_testing \
+            wunderbar-master-node/tests/ztest/gs1500m_at \
+            -d build-ztest-gs1500m \
+            -t run
+
+      - name: Upload blinky USB ELF
         uses: actions/upload-artifact@v4
         with:
           name: zephyr-blinky-usb
@@ -57,7 +80,7 @@ jobs:
             build-zephyr/zephyr/zephyr.bin
             build-zephyr/zephyr/zephyr.hex
 
-      - name: Upload RTT ELF
+      - name: Upload blinky RTT ELF
         uses: actions/upload-artifact@v4
         with:
           name: zephyr-blinky-rtt
@@ -66,8 +89,26 @@ jobs:
             build-zephyr-rtt/zephyr/zephyr.bin
             build-zephyr-rtt/zephyr/zephyr.hex
 
+      - name: Upload WiFi USB ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: zephyr-wifi-usb
+          path: |
+            build-zephyr-wifi/zephyr/zephyr.elf
+            build-zephyr-wifi/zephyr/zephyr.bin
+            build-zephyr-wifi/zephyr/zephyr.hex
+
+      - name: Upload WiFi RTT ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: zephyr-wifi-rtt
+          path: |
+            build-zephyr-wifi-rtt/zephyr/zephyr.elf
+            build-zephyr-wifi-rtt/zephyr/zephyr.bin
+            build-zephyr-wifi-rtt/zephyr/zephyr.hex
+
   freertos:
-    name: FreeRTOS blinky
+    name: FreeRTOS blinky + WiFi
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -81,7 +122,7 @@ jobs:
       - name: Fetch MCUX SDK + FreeRTOS + TinyUSB + RTT
         run: ./scripts/fetch_mcux_sdk.sh "$PWD/.deps/mcux-sdk"
 
-      - name: Build USB CDC
+      - name: Build blinky USB CDC
         run: |
           cmake -S apps/mcux_freertos_blinky -B build-freertos -G Ninja \
             -DMCU_SDK_PATH="$PWD/.deps/mcux-sdk" \
@@ -89,7 +130,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-freertos
 
-      - name: Build SEGGER RTT
+      - name: Build blinky SEGGER RTT
         run: |
           cmake -S apps/mcux_freertos_blinky -B build-freertos-rtt -G Ninja \
             -DMCU_SDK_PATH="$PWD/.deps/mcux-sdk" \
@@ -97,14 +138,30 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-freertos-rtt
 
-      - name: Unity wb_log
+      - name: Build WiFi USB CDC
+        run: |
+          cmake -S apps/mcux_freertos_wifi -B build-freertos-wifi -G Ninja \
+            -DMCU_SDK_PATH="$PWD/.deps/mcux-sdk" \
+            -DLOG_BACKEND=USB \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-freertos-wifi
+
+      - name: Build WiFi SEGGER RTT
+        run: |
+          cmake -S apps/mcux_freertos_wifi -B build-freertos-wifi-rtt -G Ninja \
+            -DMCU_SDK_PATH="$PWD/.deps/mcux-sdk" \
+            -DLOG_BACKEND=RTT \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-freertos-wifi-rtt
+
+      - name: Unity wb_log + gs1500m AT
         run: |
           ./scripts/fetch_unity.sh "$PWD/.deps/unity"
           cmake -S tests/unity -B build-unity -G Ninja -DUNITY_PATH="$PWD/.deps/unity"
           cmake --build build-unity
           ctest --test-dir build-unity --output-on-failure
 
-      - name: Upload USB ELF
+      - name: Upload blinky USB ELF
         uses: actions/upload-artifact@v4
         with:
           name: freertos-blinky-usb
@@ -113,7 +170,7 @@ jobs:
             build-freertos/wunderbar_freertos_blinky.bin
             build-freertos/wunderbar_freertos_blinky.hex
 
-      - name: Upload RTT ELF
+      - name: Upload blinky RTT ELF
         uses: actions/upload-artifact@v4
         with:
           name: freertos-blinky-rtt
@@ -121,3 +178,21 @@ jobs:
             build-freertos-rtt/wunderbar_freertos_blinky.elf
             build-freertos-rtt/wunderbar_freertos_blinky.bin
             build-freertos-rtt/wunderbar_freertos_blinky.hex
+
+      - name: Upload WiFi USB ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: freertos-wifi-usb
+          path: |
+            build-freertos-wifi/wunderbar_freertos_wifi.elf
+            build-freertos-wifi/wunderbar_freertos_wifi.bin
+            build-freertos-wifi/wunderbar_freertos_wifi.hex
+
+      - name: Upload WiFi RTT ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: freertos-wifi-rtt
+          path: |
+            build-freertos-wifi-rtt/wunderbar_freertos_wifi.elf
+            build-freertos-wifi-rtt/wunderbar_freertos_wifi.bin
+            build-freertos-wifi-rtt/wunderbar_freertos_wifi.hex

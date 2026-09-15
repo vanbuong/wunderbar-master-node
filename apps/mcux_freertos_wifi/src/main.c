@@ -1,0 +1,211 @@
+/*
+ * Copyright (c) 2026
+ * SPDX-License-Identifier: MIT
+ *
+ * FreeRTOS GS1500M WiFi bring-up + optional STA join (WB_WIFI_SSID/PSK).
+ */
+
+#include <stdio.h>
+#include <string.h>
+
+#include "board.h"
+#include "fsl_gpio.h"
+#include "wb_log.h"
+
+#include "gs1500m/wifi.h"
+#include "gs1500m/user.h"
+#include "gs_platform_freertos.h"
+
+#include "FreeRTOS.h"
+#include "task.h"
+
+#ifdef LOG_BACKEND_RTT
+#include "SEGGER_RTT.h"
+#else
+#include "tusb.h"
+#endif
+
+#ifndef LED_ACTIVE_HIGH
+#define LED_ACTIVE_HIGH 1
+#endif
+
+#ifndef WB_WIFI_SSID
+#define WB_WIFI_SSID ""
+#endif
+#ifndef WB_WIFI_PSK
+#define WB_WIFI_PSK ""
+#endif
+
+#define USBD_STACK_SIZE (configMINIMAL_STACK_SIZE * 4)
+#define WIFI_STACK_SIZE (configMINIMAL_STACK_SIZE * 6)
+
+static gs_platform_t s_gs_plat;
+static gs_user_t s_user;
+
+static void prvLedInit(void)
+{
+	gpio_pin_config_t cfg = {
+		.pinDirection = kGPIO_DigitalOutput,
+#if LED_ACTIVE_HIGH
+		.outputLogic = 1U,
+#else
+		.outputLogic = 0U,
+#endif
+	};
+	GPIO_PinInit(BOARD_LED_GPIO, BOARD_LED_GPIO_PIN, &cfg);
+}
+
+static void prvLedToggle(void)
+{
+	GPIO_PortToggle(BOARD_LED_GPIO, 1U << BOARD_LED_GPIO_PIN);
+}
+
+int _write(int fd, char *ptr, int len)
+{
+	if ((fd != 1) && (fd != 2)) {
+		return -1;
+	}
+	if ((ptr == NULL) || (len <= 0)) {
+		return 0;
+	}
+
+#ifdef LOG_BACKEND_RTT
+	return (int)SEGGER_RTT_Write(0, ptr, (unsigned)len);
+#else
+	{
+		int n = 0;
+		if (!tud_inited() || !tud_cdc_connected()) {
+			return len;
+		}
+		while (n < len) {
+			uint32_t avail = tud_cdc_write_available();
+			uint32_t chunk;
+			if (avail == 0U) {
+				tud_cdc_write_flush();
+				if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
+					vTaskDelay(1);
+				}
+				if (!tud_cdc_connected()) {
+					break;
+				}
+				continue;
+			}
+			chunk = (uint32_t)(len - n);
+			if (chunk > avail) {
+				chunk = avail;
+			}
+			n += (int)tud_cdc_write((uint8_t const *)ptr + n, chunk);
+			tud_cdc_write_flush();
+		}
+		return (n > 0) ? n : len;
+	}
+#endif
+}
+
+#ifndef LOG_BACKEND_RTT
+static void prvUsbTask(void *pvParameters)
+{
+	(void)pvParameters;
+	tud_init(BOARD_TUD_RHPORT);
+	for (;;) {
+		tud_task();
+		tud_cdc_write_flush();
+	}
+}
+
+void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts)
+{
+	(void)itf;
+	(void)rts;
+	if (dtr) {
+		WB_LOGI("WunderBar WiFi (FreeRTOS USB)");
+	}
+}
+#endif
+
+static const char *prvStateName(gs_user_state_t st)
+{
+	switch (st) {
+	case GS_USER_IDLE: return "IDLE";
+	case GS_USER_INIT: return "INIT";
+	case GS_USER_JOIN: return "JOIN";
+	case GS_USER_HTTP_TIME: return "HTTP_TIME";
+	case GS_USER_LOAD_CA: return "LOAD_CA";
+	case GS_USER_MQTT: return "MQTT";
+	case GS_USER_LIMITED_AP: return "LIMITED_AP";
+	case GS_USER_READY: return "READY";
+	case GS_USER_ERROR: return "ERROR";
+	default: return "?";
+	}
+}
+
+static void prvWifiTask(void *pvParameters)
+{
+	gs_user_config_t cfg;
+	gs_user_state_t prev = GS_USER_IDLE;
+
+	(void)pvParameters;
+
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.ssid = WB_WIFI_SSID;
+	cfg.psk = WB_WIFI_PSK;
+	cfg.use_limited_ap_on_fail = false;
+
+	if (gs_platform_freertos_init(&s_gs_plat) != 0) {
+		WB_LOGE("GS platform init failed");
+		for (;;) {
+			vTaskDelay(pdMS_TO_TICKS(1000));
+		}
+	}
+
+	gs_user_init(&s_user, &cfg);
+	WB_LOGI("GS1500M bring-up starting (ssid %s)",
+		(cfg.ssid && cfg.ssid[0]) ? cfg.ssid : "(none)");
+
+	for (;;) {
+		gs_user_state_t st = gs_user_poll(&s_user);
+		if (st != prev) {
+			WB_LOGI("wifi SM: %s (msg=%d)", prvStateName(st),
+				(int)s_user.last_msg);
+			prev = st;
+		}
+
+		if (st == GS_USER_READY || st == GS_USER_ERROR) {
+			/* Keep RX alive; blink LED as heartbeat. */
+			gs_platform_freertos_rx_poll(50);
+			prvLedToggle();
+			vTaskDelay(pdMS_TO_TICKS(500));
+		} else {
+			gs_platform_freertos_rx_poll(10);
+			vTaskDelay(pdMS_TO_TICKS(20));
+		}
+	}
+}
+
+int main(void)
+{
+	BOARD_InitHardware();
+	prvLedInit();
+	wb_log_init(wb_log_stdio_backend(), WB_LOG_INFO);
+
+#ifdef LOG_BACKEND_RTT
+	SEGGER_RTT_Init();
+	WB_LOGI("WunderBar WiFi (FreeRTOS RTT)");
+#else
+	if (xTaskCreate(prvUsbTask, "usb", USBD_STACK_SIZE, NULL,
+			configMAX_PRIORITIES - 1, NULL) != pdPASS) {
+		for (;;) {
+		}
+	}
+#endif
+
+	if (xTaskCreate(prvWifiTask, "wifi", WIFI_STACK_SIZE, NULL,
+			tskIDLE_PRIORITY + 2, NULL) != pdPASS) {
+		for (;;) {
+		}
+	}
+
+	vTaskStartScheduler();
+	for (;;) {
+	}
+}

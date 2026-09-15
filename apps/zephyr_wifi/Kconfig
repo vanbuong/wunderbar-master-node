@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config WB_WIFI_SSID
+	string "WiFi SSID (compile-time, optional)"
+	default ""
+	help
+	  Station SSID for the Zephyr WiFi demo. Leave empty to only bring up
+	  the GS1500M module without joining.
+
+config WB_WIFI_PSK
+	string "WiFi PSK (compile-time, optional)"
+	default ""
+	help
+	  WPA/WPA2 passphrase. Do not commit real secrets.

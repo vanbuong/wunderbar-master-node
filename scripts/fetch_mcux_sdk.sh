@@ -34,7 +34,8 @@ git -C "$CACHE/legacy-mcux-sdk" sparse-checkout set \
   drivers/common \
   drivers/gpio \
   drivers/port \
-  drivers/smc
+  drivers/smc \
+  drivers/uart
 git -C "$CACHE/legacy-mcux-sdk" checkout --quiet
 
 if [[ ! -d "$CACHE/CMSIS_5/.git" ]]; then
