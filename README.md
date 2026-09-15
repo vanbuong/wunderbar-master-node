@@ -40,12 +40,62 @@ Do **not** copy FRDM-K64F’s default **50 MHz** EXTAL settings. This module use
 
 ```
 boards/relayr/wunderbar_master/   Zephyr HWMv2 board (12 MHz + PTA29 LED)
-apps/zephyr_blinky/               Zephyr CMake blinky
+apps/zephyr_blinky/               Zephyr CMake blinky (USB CDC + RTT images)
 apps/mcux_freertos_blinky/        MCUXpresso SDK + FreeRTOS CMake blinky
+lib/log/                          Portable wb_log module (level + backends)
+tests/unity/                      Unity host unit tests for wb_log
+tests/ztest/wb_log/               Zephyr ztest suite for wb_log
 west.yml                          Zephyr west manifest (v4.4.2)
+scripts/                          Host build helpers (firmware + tests)
+.github/workflows/build.yml       CI: four images + Unity + ztest
 ```
 
 LED: **PTA29** (`GPIOA` pin 29). Default polarity is active-high; flip it in the DTS / `LED_ACTIVE_HIGH` if your LED is wired active-low.
+
+USB: dedicated **USB0_DP / USB0_DM** (no extra pinmux). The USB images enumerate as a **CDC ACM** serial port (`/dev/ttyACM*` on Linux, `COMx` on Windows). Baud rate is ignored.
+
+A second firmware per OS prints the same blink log over **SEGGER RTT** (J-Link SWD; no USB cable required).
+
+---
+
+## Build both (Zephyr + FreeRTOS)
+
+From this repository, after installing west, CMake, Ninja, and an ARM GCC (Zephyr SDK **or** `arm-none-eabi-gcc`):
+
+```bash
+./scripts/build.sh          # all four images (Zephyr/FreeRTOS × USB/RTT)
+./scripts/build.sh zephyr   # Zephyr USB + RTT
+./scripts/build.sh freertos # MCUX + FreeRTOS USB + RTT
+./scripts/build.sh test     # Unity (host) + Zephyr ztest
+```
+
+Outputs:
+
+| Image | Path |
+|-------|------|
+| Zephyr USB CDC | `build-zephyr/zephyr/zephyr.elf` |
+| Zephyr RTT | `build-zephyr-rtt/zephyr/zephyr.elf` |
+| FreeRTOS USB CDC | `build-freertos/wunderbar_freertos_blinky.elf` |
+| FreeRTOS RTT | `build-freertos-rtt/wunderbar_freertos_blinky.elf` |
+
+GitHub Actions builds the four images and runs **Unity** + **ztest** on every push/PR.
+
+### Log module (`lib/log`)
+
+Both firmwares use **`wb_log`** (`WB_LOGI` / `WB_LOGE` / …). Messages look like `[I] LED ON` and go through a pluggable backend:
+
+| Backend | Use |
+|---------|-----|
+| `wb_log_stdio_backend()` | Firmware — `fwrite(stdout)` → FreeRTOS `_write` (USB/RTT) or Zephyr console |
+| `wb_log_stub_backend()` | Unit tests — capture buffer + `wb_log_stub_contains()` |
+
+```bash
+./scripts/build.sh test
+# or separately:
+./scripts/fetch_unity.sh
+cmake -S tests/unity -B build-unity -G Ninja && cmake --build build-unity && ctest --test-dir build-unity
+west build -b unit_testing tests/ztest/wb_log -t run
+```
 
 ---
 
@@ -56,17 +106,20 @@ Zephyr includes its own kernel/scheduler (this is the usual Zephyr path; you do 
 ### Toolchain
 
 1. Install [West](https://docs.zephyrproject.org/latest/develop/west/install.html): `pip install west`
-2. Install the [Zephyr SDK](https://docs.zephyrproject.org/latest/develop/toolchains/zephyr_sdk.html) (or another ARM toolchain Zephyr accepts)
+2. Install the [Zephyr SDK](https://docs.zephyrproject.org/latest/develop/toolchains/zephyr_sdk.html) (or another ARM toolchain Zephyr accepts). Zephyr 4.4 needs SDK **1.0.x**.
 
 ### Workspace
 
+`west init -l` puts the workspace in the **parent** of this repo, and the repo folder must be named `wunderbar-master-node` (see `self.path` in `west.yml`):
+
 ```bash
-cd E:/Work/Project/NXP
 mkdir wb-zephyr-workspace
 cd wb-zephyr-workspace
 west init -l ../wunderbar-master-node
 west update
 ```
+
+`./scripts/build.sh zephyr` creates that sibling workspace if needed (including when this checkout is named something else, e.g. `workspace`).
 
 ### Build & flash
 
@@ -80,6 +133,24 @@ west flash
 
 J-Link device string: `MK24FN1M0xxx12`.
 
+Plug the module USB into the host and open the CDC port to see `LED ON` / `LED OFF` (wait up to ~5 s after reset if you want the banner; the LED still blinks if nothing is attached):
+
+```bash
+picocom -b 115200 /dev/ttyACM0
+```
+
+RTT image (J-Link connected over SWD):
+
+```bash
+west build -b wunderbar_master/mk64f12 \
+  wunderbar-master-node/apps/zephyr_blinky \
+  -d build-zephyr-rtt -- \
+  -DEXTRA_CONF_FILE=rtt.conf \
+  -DEXTRA_DTC_OVERLAY_FILE=rtt.overlay
+
+JLinkRTTClient
+```
+
 ---
 
 ## 2) MCUXpresso SDK + FreeRTOS blinky
@@ -87,6 +158,15 @@ J-Link device string: `MK24FN1M0xxx12`.
 Separate bare-metal/SDK image that runs **FreeRTOS** and toggles PTA29.
 
 ### Get the SDK
+
+**Option A — GitHub (no NXP login)**
+
+```bash
+./scripts/fetch_mcux_sdk.sh
+# then: MCU_SDK_PATH=$PWD/.deps/mcux-sdk
+```
+
+**Option B — MCUXpresso SDK Builder zip**
 
 1. Open [MCUXpresso SDK Builder](https://mcuxpresso.nxp.com/en/builder)
 2. Board: **FRDM-K64F**
@@ -96,17 +176,27 @@ Separate bare-metal/SDK image that runs **FreeRTOS** and toggles PTA29.
 
 This app replaces the board clock files with WunderBar’s **12 MHz / 32.768 kHz** configuration in `apps/mcux_freertos_blinky/board/clock_config.*`.
 
+Early boot matches Zephyr: **do not write `RTC->CR`**, release **PMC ACKISO**, and disable **SYSMPU** (required for USB). `./scripts/fetch_mcux_sdk.sh` also clones **TinyUSB 0.17.0** for the CDC console.
+
 ### Build
 
 ```bash
+./scripts/build.sh freertos
+```
+
+Or CMake directly:
+
+```bash
 cd apps/mcux_freertos_blinky
-cmake -S . -B build -G Ninja ^
-  -DMCU_SDK_PATH=C:/nxp/SDK_2.x_FRDM-K64F ^
+cmake -S . -B build -G Ninja \
+  -DMCU_SDK_PATH=/path/to/SDK_2.x_FRDM-K64F \
   -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 ```
 
-Output: `build/wunderbar_freertos_blinky.elf` (+ `.hex` / `.bin`).
+Output: `build/wunderbar_freertos_blinky.elf` (or `build-freertos/` / `build-freertos-rtt/` when using `scripts/build.sh`) plus `.hex` / `.bin`.
+
+USB CDC logs (`LED toggle (FreeRTOS USB)`) appear on the host serial port after you open a terminal (DTR). RTT logs (`LED toggle (FreeRTOS RTT)`) appear in J-Link RTT Viewer / `JLinkRTTClient`. The LED is turned on in `main` before the scheduler starts, then toggles every 500 ms.
 
 ---
 

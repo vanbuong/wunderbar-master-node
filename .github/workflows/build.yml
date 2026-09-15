@@ -1,0 +1,123 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  zephyr:
+    name: Zephyr blinky
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: wunderbar-master-node
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Zephyr
+        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          app-path: wunderbar-master-node
+          toolchains: arm-zephyr-eabi
+          sdk-version: "1.0.1"
+
+      - name: Build USB CDC
+        run: |
+          west build -b wunderbar_master/mk64f12 \
+            wunderbar-master-node/apps/zephyr_blinky \
+            -d build-zephyr \
+            -- -DBOARD_ROOT="${GITHUB_WORKSPACE}/wunderbar-master-node"
+
+      - name: Build SEGGER RTT
+        run: |
+          west build -b wunderbar_master/mk64f12 \
+            wunderbar-master-node/apps/zephyr_blinky \
+            -d build-zephyr-rtt \
+            -- -DBOARD_ROOT="${GITHUB_WORKSPACE}/wunderbar-master-node" \
+               -DEXTRA_CONF_FILE=rtt.conf \
+               -DEXTRA_DTC_OVERLAY_FILE=rtt.overlay
+
+      - name: ztest wb_log
+        run: |
+          west build -b unit_testing \
+            wunderbar-master-node/tests/ztest/wb_log \
+            -d build-ztest \
+            -t run
+
+      - name: Upload USB ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: zephyr-blinky-usb
+          path: |
+            build-zephyr/zephyr/zephyr.elf
+            build-zephyr/zephyr/zephyr.bin
+            build-zephyr/zephyr/zephyr.hex
+
+      - name: Upload RTT ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: zephyr-blinky-rtt
+          path: |
+            build-zephyr-rtt/zephyr/zephyr.elf
+            build-zephyr-rtt/zephyr/zephyr.bin
+            build-zephyr-rtt/zephyr/zephyr.hex
+
+  freertos:
+    name: FreeRTOS blinky
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            gcc-arm-none-eabi libnewlib-arm-none-eabi gcc cmake ninja-build
+
+      - name: Fetch MCUX SDK + FreeRTOS + TinyUSB + RTT
+        run: ./scripts/fetch_mcux_sdk.sh "$PWD/.deps/mcux-sdk"
+
+      - name: Build USB CDC
+        run: |
+          cmake -S apps/mcux_freertos_blinky -B build-freertos -G Ninja \
+            -DMCU_SDK_PATH="$PWD/.deps/mcux-sdk" \
+            -DLOG_BACKEND=USB \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-freertos
+
+      - name: Build SEGGER RTT
+        run: |
+          cmake -S apps/mcux_freertos_blinky -B build-freertos-rtt -G Ninja \
+            -DMCU_SDK_PATH="$PWD/.deps/mcux-sdk" \
+            -DLOG_BACKEND=RTT \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-freertos-rtt
+
+      - name: Unity wb_log
+        run: |
+          ./scripts/fetch_unity.sh "$PWD/.deps/unity"
+          cmake -S tests/unity -B build-unity -G Ninja -DUNITY_PATH="$PWD/.deps/unity"
+          cmake --build build-unity
+          ctest --test-dir build-unity --output-on-failure
+
+      - name: Upload USB ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: freertos-blinky-usb
+          path: |
+            build-freertos/wunderbar_freertos_blinky.elf
+            build-freertos/wunderbar_freertos_blinky.bin
+            build-freertos/wunderbar_freertos_blinky.hex
+
+      - name: Upload RTT ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: freertos-blinky-rtt
+          path: |
+            build-freertos-rtt/wunderbar_freertos_blinky.elf
+            build-freertos-rtt/wunderbar_freertos_blinky.bin
+            build-freertos-rtt/wunderbar_freertos_blinky.hex

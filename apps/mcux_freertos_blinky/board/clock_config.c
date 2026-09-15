@@ -8,7 +8,7 @@
  *   OSC0 : 12 MHz crystal (Y1) on EXTAL0/XTAL0, external C17/C18 = 12 pF
  *   RTC  : 32.768 kHz crystal (X8) on EXTAL32/XTAL32, external C104/C105 = 12 pF
  *
- * Target (MCG PEE):
+ * Target (MCG PEE) — same sequence as Zephyr's k6x clock_init():
  *   Core / System : 120 MHz
  *   Bus           :  60 MHz
  *   FlexBus       :  40 MHz
@@ -18,10 +18,9 @@
  *   PRDIV register = 2  (divide by PRDIV+1 = 3)
  *   VDIV  register = 6  (multiply by VDIV+24 = 30)
  *
- * Correct SDK package: MCUXpresso SDK for FRDM-K64F / MK64FN1M0xxx12
- * (SDK 2.x also lists MK24FN1M0VDC12 in the same device family).
- * Download from https://mcuxpresso.nxp.com/en/builder  (board: FRDM-K64F)
- * or use a legacy SDK zip that contains devices/MK64F12 (or MK24F12).
+ * Do not write RTC->CR here. The RTC lives on a separate power domain;
+ * touching it before the domain is ready can hang the core (Zephyr never
+ * does this during early clock init).
  */
 
 #include "fsl_smc.h"
@@ -37,8 +36,6 @@
 #define SIM_OSC32KSEL_RTC32KCLK_CLK       2U
 #define SIM_PLLFLLSEL_MCGPLLCLK_CLK       1U
 #define SIM_PLLFLLSEL_IRC48MCLK_CLK       3U
-#define RTC_OSC_CAP_LOAD_0PF              0U
-#define RTC_RTC32KCLK_PERIPHERALS_ENABLED 1U
 
 /*******************************************************************************
  * Variables
@@ -48,25 +45,6 @@ extern uint32_t SystemCoreClock;
 /*******************************************************************************
  * Code
  ******************************************************************************/
-static void CLOCK_CONFIG_SetFllExtRefDiv(uint8_t frdiv)
-{
-    MCG->C1 = ((MCG->C1 & ~MCG_C1_FRDIV_MASK) | MCG_C1_FRDIV(frdiv));
-}
-
-static void CLOCK_CONFIG_SetRtcClock(uint32_t capLoad, uint8_t enablePeriphs)
-{
-    /* . The RTC oscillator uses the external 32.768 kHz crystal (X8).
-     * On-chip load caps are left at 0 pF because C104/C105 are already 12 pF. */
-    RTC->CR = (RTC->CR & ~(RTC_CR_SC2P_MASK | RTC_CR_SC4P_MASK | RTC_CR_SC8P_MASK |
-                           RTC_CR_SC16P_MASK)) |
-              capLoad;
-    RTC->CR |= RTC_CR_OSCE_MASK;
-    if (enablePeriphs != 0U) {
-        /* Keep RTC32KCLK available to peripherals via SIM_SOPT1[OSC32KSEL]. */
-        (void)enablePeriphs;
-    }
-}
-
 void BOARD_InitBootClocks(void)
 {
     BOARD_BootClockRUN();
@@ -75,9 +53,9 @@ void BOARD_InitBootClocks(void)
 const mcg_config_t mcgConfig_BOARD_BootClockRUN = {
     .mcgMode = kMCG_ModePEE,
     .irclkEnableMode = kMCG_IrclkEnable,
-    .ircs = kMCG_IrcFast,
-    .fcrdiv = 0x1U, /* Fast IRC / 2 */
-    .frdiv = 0x0U,  /* FLL FRDIV (unused in PEE system path) */
+    .ircs = kMCG_IrcSlow,
+    .fcrdiv = 0x1U,
+    .frdiv = 0x0U,
     .drs = kMCG_DrsLow,
     .dmx32 = kMCG_Dmx32Default,
     .oscsel = kMCG_OscselOsc,
@@ -111,22 +89,15 @@ void BOARD_BootClockRUN(void)
 {
     CLOCK_SetSimSafeDivs();
 
-    /* Enable 32.768 kHz RTC oscillator first (safe while still on FEI). */
-    CLOCK_CONFIG_SetRtcClock(RTC_OSC_CAP_LOAD_0PF, RTC_RTC32KCLK_PERIPHERALS_ENABLED);
-
     CLOCK_InitOsc0(&oscConfig_BOARD_BootClockRUN);
     CLOCK_SetXtal0Freq(oscConfig_BOARD_BootClockRUN.freq);
-#if defined(CLOCK_SetXtal32Freq)
-    CLOCK_SetXtal32Freq(BOARD_XTAL32K_CLK_HZ);
-#endif
+
+    CLOCK_BootToPeeMode(mcgConfig_BOARD_BootClockRUN.oscsel, kMCG_PllClkSelPll0,
+                        &mcgConfig_BOARD_BootClockRUN.pll0Config);
 
     CLOCK_SetInternalRefClkConfig(mcgConfig_BOARD_BootClockRUN.irclkEnableMode,
                                   mcgConfig_BOARD_BootClockRUN.ircs,
                                   mcgConfig_BOARD_BootClockRUN.fcrdiv);
-    CLOCK_CONFIG_SetFllExtRefDiv(mcgConfig_BOARD_BootClockRUN.frdiv);
-
-    CLOCK_BootToPeeMode(mcgConfig_BOARD_BootClockRUN.oscsel, kMCG_PllClkSelPll0,
-                        &mcgConfig_BOARD_BootClockRUN.pll0Config);
 
     CLOCK_SetSimConfig(&simConfig_BOARD_BootClockRUN);
     SystemCoreClock = BOARD_BOOTCLOCKRUN_CORE_CLOCK;

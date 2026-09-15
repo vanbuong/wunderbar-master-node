@@ -1,0 +1,12 @@
+common:
+  tags:
+    - wb_log
+tests:
+  wunderbar.wb_log.unit:
+    type: unit
+  wunderbar.wb_log.native:
+    platform_allow:
+      - native_sim
+      - native_sim/native/64
+    integration_platforms:
+      - native_sim

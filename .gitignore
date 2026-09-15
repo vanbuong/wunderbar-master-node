@@ -61,6 +61,7 @@ build-*/
 **/build/
 .west/
 ../zephyr/
+.deps/
 # Do not ignore this repo's zephyr/module.yml
 cmake-build-*/
 .vscode/

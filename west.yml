@@ -3,6 +3,9 @@
 #   mkdir wb-zephyr-workspace && cd wb-zephyr-workspace
 #   west init -l ../wunderbar-master-node
 #   west update
+#
+# The folder you pass to `west init -l` must be named wunderbar-master-node
+# (see self.path). `./scripts/build.sh zephyr` sets that up for you.
 
 manifest:
   self:
@@ -16,4 +19,12 @@ manifest:
     - name: zephyr
       remote: zephyrproject-rtos
       revision: v4.4.2
-      import: true
+      # Blinky needs Kinetis HAL + CMSIS + SEGGER RTT. Expand this list when adding
+      # networking, MCUboot, or other Zephyr modules.
+      import:
+        name-allowlist:
+          - cmsis
+          - cmsis_6
+          - hal_nxp
+          - picolibc
+          - segger
