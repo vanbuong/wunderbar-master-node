@@ -71,6 +71,13 @@ jobs:
             -d build-ztest-gs1500m \
             -t run
 
+      - name: ztest gs1500m WiFi
+        run: |
+          west build -b unit_testing \
+            wunderbar-master-node/tests/ztest/gs1500m_wifi \
+            -d build-ztest-gs1500m-wifi \
+            -t run
+
       - name: Upload blinky USB ELF
         uses: actions/upload-artifact@v4
         with:
@@ -154,7 +161,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-freertos-wifi-rtt
 
-      - name: Unity wb_log + gs1500m AT
+      - name: Unity wb_log + gs1500m
         run: |
           ./scripts/fetch_unity.sh "$PWD/.deps/unity"
           cmake -S tests/unity -B build-unity -G Ninja -DUNITY_PATH="$PWD/.deps/unity"

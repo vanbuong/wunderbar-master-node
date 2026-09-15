@@ -247,7 +247,8 @@ gs_msg_id_t gs_wifi_get_rssi(int16_t *rssi_dbm)
 {
 	gs_msg_id_t id = gs_at_send_cmd("AT+WRSSI=?\r\n", GS_AT_DEFAULT_CMD_TIMEOUT_MS);
 	if (rssi_dbm) {
-		*rssi_dbm = (int16_t)atoi(gs_at_last_line());
+		const char *info = gs_at_last_info_line();
+		*rssi_dbm = (int16_t)atoi(info && info[0] ? info : gs_at_last_line());
 	}
 	return id;
 }

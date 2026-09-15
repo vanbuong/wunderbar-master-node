@@ -31,7 +31,11 @@ gs_msg_id_t gs_ssl_cert_add(const char *name, bool to_flash,
 	if (len > 0U && gs_at_write(der, len) < 0) {
 		return GS_MSG_ERROR;
 	}
-	return gs_at_wait_response(GS_AT_DEFAULT_CMD_TIMEOUT_MS);
+	id = gs_at_wait_response(GS_AT_DEFAULT_CMD_TIMEOUT_MS);
+	if (id == GS_MSG_ESC_OK || id == GS_MSG_OK) {
+		return GS_MSG_OK;
+	}
+	return id;
 }
 
 gs_msg_id_t gs_ssl_cert_delete(const char *name)

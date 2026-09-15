@@ -94,6 +94,12 @@ gs_msg_id_t gs_at_send_cmdf(uint32_t timeout_ms, const char *fmt, ...);
 /** Last completed response line (valid until next command). */
 const char *gs_at_last_line(void);
 
+/**
+ * Last informational line before a terminal OK/ERROR (e.g. RSSI value,
+ * NSTAT fields). Cleared on gs_at_init / flush.
+ */
+const char *gs_at_last_info_line(void);
+
 /** Parse CONNECT cid from last response; returns GS_AT_INVALID_CID on failure. */
 uint8_t gs_at_parse_connect_cid(void);
 

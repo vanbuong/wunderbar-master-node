@@ -200,6 +200,11 @@ run_tests() {
   echo "Building Zephyr ztest (gs1500m AT) -> $out_ztest_gs"
   west build -b unit_testing "$ROOT/tests/ztest/gs1500m_at" -d "$out_ztest_gs" -t run
   echo "ztest gs1500m_at OK"
+
+  local out_ztest_wifi="${ZTEST_GS_WIFI_BUILD_DIR:-$ROOT/build-ztest-gs1500m-wifi}"
+  echo "Building Zephyr ztest (gs1500m wifi) -> $out_ztest_wifi"
+  west build -b unit_testing "$ROOT/tests/ztest/gs1500m_wifi" -d "$out_ztest_wifi" -t run
+  echo "ztest gs1500m_wifi OK"
 }
 
 case "$TARGET" in

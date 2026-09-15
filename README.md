@@ -127,7 +127,11 @@ Both firmwares use **`wb_log`** (`WB_LOGI` / `WB_LOGE` / …). Messages look lik
 ./scripts/fetch_unity.sh
 cmake -S tests/unity -B build-unity -G Ninja && cmake --build build-unity && ctest --test-dir build-unity
 west build -b unit_testing tests/ztest/wb_log -t run
+west build -b unit_testing tests/ztest/gs1500m_at -t run
+west build -b unit_testing tests/ztest/gs1500m_wifi -t run
 ```
+
+Host Unity covers `wb_log`, the AT ESC/line parser, and the full WiFi library (join, sockets, SSL, HTTP, MQTT pipe, Limited AP, user SM) via a stub UART platform in `tests/common/`.
 
 ---
 

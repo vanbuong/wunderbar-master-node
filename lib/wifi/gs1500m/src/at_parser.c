@@ -32,6 +32,7 @@ static rx_state_t s_state;
 static char s_line[GS_AT_RX_LINE_MAX];
 static size_t s_line_len;
 static char s_last_line[GS_AT_RX_LINE_MAX];
+static char s_last_info_line[GS_AT_RX_LINE_MAX];
 static uint8_t s_cid;
 static gs_esc_kind_t s_esc_kind;
 static uint32_t s_bulk_len;
@@ -82,6 +83,7 @@ void gs_at_init(const gs_at_callbacks_t *cbs)
 	}
 	memset(s_line, 0, sizeof(s_line));
 	memset(s_last_line, 0, sizeof(s_last_line));
+	memset(s_last_info_line, 0, sizeof(s_last_info_line));
 	reset_to_start();
 }
 
@@ -154,6 +156,17 @@ static gs_msg_id_t finish_line(void)
 	s_last_line[sizeof(s_last_line) - 1U] = '\0';
 
 	id = gs_at_classify_line(s_line);
+	if (id == GS_MSG_NONE && s_line_len > 0U) {
+		strncpy(s_last_info_line, s_line, sizeof(s_last_info_line) - 1U);
+		s_last_info_line[sizeof(s_last_info_line) - 1U] = '\0';
+		{
+			size_t n = strlen(s_last_info_line);
+			while (n > 0U && (s_last_info_line[n - 1U] == '\r' ||
+					  s_last_info_line[n - 1U] == '\n')) {
+				s_last_info_line[--n] = '\0';
+			}
+		}
+	}
 	if (s_cbs.on_line && (id != GS_MSG_NONE || s_line_len > 0U)) {
 		s_cbs.on_line(id, s_line, s_cbs.user);
 	}
@@ -403,6 +416,11 @@ const char *gs_at_last_line(void)
 	return s_last_line;
 }
 
+const char *gs_at_last_info_line(void)
+{
+	return s_last_info_line;
+}
+
 uint8_t gs_at_parse_connect_cid(void)
 {
 	const char *p = strstr(s_last_line, "CONNECT");
@@ -428,4 +446,5 @@ void gs_at_flush(void)
 	reset_to_start();
 	s_line_len = 0U;
 	s_last_line[0] = '\0';
+	s_last_info_line[0] = '\0';
 }
