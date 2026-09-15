@@ -1,5 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
+mainmenu "WunderBar Zephyr WiFi"
+
+source "Kconfig.zephyr"
+
 config WB_WIFI_SSID
 	string "WiFi SSID (compile-time, optional)"
 	default ""
