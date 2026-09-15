@@ -25,21 +25,39 @@ jobs:
           toolchains: arm-zephyr-eabi
           sdk-version: "1.0.1"
 
-      - name: Build
+      - name: Build USB CDC
         run: |
           west build -b wunderbar_master/mk64f12 \
             wunderbar-master-node/apps/zephyr_blinky \
             -d build-zephyr \
             -- -DBOARD_ROOT="${GITHUB_WORKSPACE}/wunderbar-master-node"
 
-      - name: Upload ELF
+      - name: Build SEGGER RTT
+        run: |
+          west build -b wunderbar_master/mk64f12 \
+            wunderbar-master-node/apps/zephyr_blinky \
+            -d build-zephyr-rtt \
+            -- -DBOARD_ROOT="${GITHUB_WORKSPACE}/wunderbar-master-node" \
+               -DEXTRA_CONF_FILE=rtt.conf \
+               -DEXTRA_DTC_OVERLAY_FILE=rtt.overlay
+
+      - name: Upload USB ELF
         uses: actions/upload-artifact@v4
         with:
-          name: zephyr-blinky
+          name: zephyr-blinky-usb
           path: |
             build-zephyr/zephyr/zephyr.elf
             build-zephyr/zephyr/zephyr.bin
             build-zephyr/zephyr/zephyr.hex
+
+      - name: Upload RTT ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: zephyr-blinky-rtt
+          path: |
+            build-zephyr-rtt/zephyr/zephyr.elf
+            build-zephyr-rtt/zephyr/zephyr.bin
+            build-zephyr-rtt/zephyr/zephyr.hex
 
   freertos:
     name: FreeRTOS blinky
@@ -53,21 +71,39 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             gcc-arm-none-eabi libnewlib-arm-none-eabi cmake ninja-build
 
-      - name: Fetch MCUX SDK + FreeRTOS
+      - name: Fetch MCUX SDK + FreeRTOS + TinyUSB + RTT
         run: ./scripts/fetch_mcux_sdk.sh "$PWD/.deps/mcux-sdk"
 
-      - name: Build
+      - name: Build USB CDC
         run: |
           cmake -S apps/mcux_freertos_blinky -B build-freertos -G Ninja \
             -DMCU_SDK_PATH="$PWD/.deps/mcux-sdk" \
+            -DLOG_BACKEND=USB \
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build-freertos
 
-      - name: Upload ELF
+      - name: Build SEGGER RTT
+        run: |
+          cmake -S apps/mcux_freertos_blinky -B build-freertos-rtt -G Ninja \
+            -DMCU_SDK_PATH="$PWD/.deps/mcux-sdk" \
+            -DLOG_BACKEND=RTT \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-freertos-rtt
+
+      - name: Upload USB ELF
         uses: actions/upload-artifact@v4
         with:
-          name: freertos-blinky
+          name: freertos-blinky-usb
           path: |
             build-freertos/wunderbar_freertos_blinky.elf
             build-freertos/wunderbar_freertos_blinky.bin
             build-freertos/wunderbar_freertos_blinky.hex
+
+      - name: Upload RTT ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: freertos-blinky-rtt
+          path: |
+            build-freertos-rtt/wunderbar_freertos_blinky.elf
+            build-freertos-rtt/wunderbar_freertos_blinky.bin
+            build-freertos-rtt/wunderbar_freertos_blinky.hex

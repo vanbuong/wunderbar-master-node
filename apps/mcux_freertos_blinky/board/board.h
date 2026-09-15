@@ -16,7 +16,9 @@ extern "C" {
 #endif
 
 void BOARD_InitHardware(void);
+#ifndef LOG_BACKEND_RTT
 void BOARD_InitUsb(void);
+#endif
 
 #if defined(__cplusplus)
 }

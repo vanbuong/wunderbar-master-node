@@ -5,7 +5,7 @@
  * Early board bring-up aligned with Zephyr's k6x soc_early_init_hook():
  *   - release PMC I/O isolation (ACKISO)
  *   - disable the Kinetis SYSMPU (required for USB BDT RAM access)
- * then clocks, pins, USB FS clock (IRC48M crystal-less).
+ * then clocks, pins, and USB FS clock when the USB CDC image is built.
  */
 
 #include "board.h"
@@ -13,8 +13,11 @@
 #include "fsl_gpio.h"
 #include "fsl_device_registers.h"
 
+#ifndef LOG_BACKEND_RTT
 #include "tusb.h"
+#endif
 
+#ifndef LOG_BACKEND_RTT
 void BOARD_InitUsb(void)
 {
     /* Unlock and enable the on-chip USB voltage regulator. */
@@ -29,6 +32,7 @@ void BOARD_InitUsb(void)
      * so the TinyUSB ISR can call FreeRTOS FromISR APIs. */
     NVIC_SetPriority(USB0_IRQn, 3);
 }
+#endif
 
 void BOARD_InitHardware(void)
 {
@@ -48,10 +52,14 @@ void BOARD_InitHardware(void)
 
     BOARD_InitBootPins();
     BOARD_InitBootClocks();
+#ifndef LOG_BACKEND_RTT
     BOARD_InitUsb();
+#endif
 }
 
+#ifndef LOG_BACKEND_RTT
 void USB0_IRQHandler(void)
 {
     tud_int_handler(0);
 }
+#endif

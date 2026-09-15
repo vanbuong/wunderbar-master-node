@@ -2,7 +2,8 @@
  * Copyright (c) 2026
  * SPDX-License-Identifier: MIT
  *
- * FreeRTOS blinky for WunderBar master — LED on PTA29, logs on USB CDC.
+ * FreeRTOS blinky for WunderBar master — LED on PTA29.
+ * Logs: USB CDC (default) or SEGGER RTT (-DLOG_BACKEND=RTT).
  */
 
 #include <stdio.h>
@@ -13,7 +14,11 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#ifdef LOG_BACKEND_RTT
+#include "SEGGER_RTT.h"
+#else
 #include "tusb.h"
+#endif
 
 #ifndef LED_ACTIVE_HIGH
 #define LED_ACTIVE_HIGH 1
@@ -51,47 +56,54 @@ static void prvBusyBlinkForever(void)
     }
 }
 
-/* newlib-nano stdout/stderr → USB CDC. Drops bytes if the host is not open. */
 int _write(int fd, char *ptr, int len)
 {
-    int n = 0;
-
     if ((fd != 1) && (fd != 2)) {
         return -1;
     }
     if ((ptr == NULL) || (len <= 0)) {
         return 0;
     }
-    if (!tud_inited() || !tud_cdc_connected()) {
-        return len;
-    }
 
-    while (n < len) {
-        uint32_t avail = tud_cdc_write_available();
-        uint32_t chunk;
+#ifdef LOG_BACKEND_RTT
+    return (int)SEGGER_RTT_Write(0, ptr, (unsigned)len);
+#else
+    {
+        int n = 0;
 
-        if (avail == 0U) {
+        if (!tud_inited() || !tud_cdc_connected()) {
+            return len;
+        }
+
+        while (n < len) {
+            uint32_t avail = tud_cdc_write_available();
+            uint32_t chunk;
+
+            if (avail == 0U) {
+                tud_cdc_write_flush();
+                if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
+                    vTaskDelay(1);
+                }
+                if (!tud_cdc_connected()) {
+                    break;
+                }
+                continue;
+            }
+
+            chunk = (uint32_t)(len - n);
+            if (chunk > avail) {
+                chunk = avail;
+            }
+            n += (int)tud_cdc_write((uint8_t const *)ptr + n, chunk);
             tud_cdc_write_flush();
-            if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
-                vTaskDelay(1);
-            }
-            if (!tud_cdc_connected()) {
-                break;
-            }
-            continue;
         }
 
-        chunk = (uint32_t)(len - n);
-        if (chunk > avail) {
-            chunk = avail;
-        }
-        n += (int)tud_cdc_write((uint8_t const *)ptr + n, chunk);
-        tud_cdc_write_flush();
+        return (n > 0) ? n : len;
     }
-
-    return (n > 0) ? n : len;
+#endif
 }
 
+#ifndef LOG_BACKEND_RTT
 static void prvUsbTask(void *pvParameters)
 {
     (void)pvParameters;
@@ -101,17 +113,6 @@ static void prvUsbTask(void *pvParameters)
     for (;;) {
         tud_task();
         tud_cdc_write_flush();
-    }
-}
-
-static void prvBlinkTask(void *pvParameters)
-{
-    (void)pvParameters;
-
-    for (;;) {
-        prvLedToggle();
-        printf("LED toggle (FreeRTOS)\r\n");
-        vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
 
@@ -138,9 +139,25 @@ void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts)
     (void)rts;
 
     if (dtr) {
-        const char *msg = "WunderBar blinky on PTA29 (FreeRTOS)\r\n";
+        const char *msg = "WunderBar blinky on PTA29 (FreeRTOS USB)\r\n";
         tud_cdc_write_str(msg);
         tud_cdc_write_flush();
+    }
+}
+#endif
+
+static void prvBlinkTask(void *pvParameters)
+{
+    (void)pvParameters;
+
+    for (;;) {
+        prvLedToggle();
+#ifdef LOG_BACKEND_RTT
+        printf("LED toggle (FreeRTOS RTT)\r\n");
+#else
+        printf("LED toggle (FreeRTOS USB)\r\n");
+#endif
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
 
@@ -149,10 +166,15 @@ int main(void)
     BOARD_InitHardware();
     prvLedInit();
 
+#ifdef LOG_BACKEND_RTT
+    SEGGER_RTT_Init();
+    printf("WunderBar blinky on PTA29 (FreeRTOS RTT)\r\n");
+#else
     if (xTaskCreate(prvUsbTask, "usb", USBD_STACK_SIZE, NULL,
                     configMAX_PRIORITIES - 1, NULL) != pdPASS) {
         prvBusyBlinkForever();
     }
+#endif
 
     if (xTaskCreate(prvBlinkTask, "blink", BLINK_STACK_SIZE, NULL,
                     tskIDLE_PRIORITY + 1, NULL) != pdPASS) {

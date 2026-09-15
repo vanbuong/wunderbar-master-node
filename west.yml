@@ -19,7 +19,7 @@ manifest:
     - name: zephyr
       remote: zephyrproject-rtos
       revision: v4.4.2
-      # Blinky only needs Kinetis HAL + CMSIS. Expand this list when adding
+      # Blinky needs Kinetis HAL + CMSIS + SEGGER RTT. Expand this list when adding
       # networking, MCUboot, or other Zephyr modules.
       import:
         name-allowlist:
@@ -27,3 +27,4 @@ manifest:
           - cmsis_6
           - hal_nxp
           - picolibc
+          - segger

@@ -40,16 +40,18 @@ Do **not** copy FRDM-K64F’s default **50 MHz** EXTAL settings. This module use
 
 ```
 boards/relayr/wunderbar_master/   Zephyr HWMv2 board (12 MHz + PTA29 LED)
-apps/zephyr_blinky/               Zephyr CMake blinky
+apps/zephyr_blinky/               Zephyr CMake blinky (USB CDC + RTT images)
 apps/mcux_freertos_blinky/        MCUXpresso SDK + FreeRTOS CMake blinky
 west.yml                          Zephyr west manifest (v4.4.2)
-scripts/                          Host build helpers (both images)
-.github/workflows/build.yml       CI for Zephyr + FreeRTOS
+scripts/                          Host build helpers (both OSes, USB + RTT)
+.github/workflows/build.yml       CI: four images (Zephyr/FreeRTOS × USB/RTT)
 ```
 
 LED: **PTA29** (`GPIOA` pin 29). Default polarity is active-high; flip it in the DTS / `LED_ACTIVE_HIGH` if your LED is wired active-low.
 
-USB: dedicated **USB0_DP / USB0_DM** (no extra pinmux). Both images enumerate as a **CDC ACM** serial port (`/dev/ttyACM*` on Linux, `COMx` on Windows). Baud rate is ignored.
+USB: dedicated **USB0_DP / USB0_DM** (no extra pinmux). The USB images enumerate as a **CDC ACM** serial port (`/dev/ttyACM*` on Linux, `COMx` on Windows). Baud rate is ignored.
+
+A second firmware per OS prints the same blink log over **SEGGER RTT** (J-Link SWD; no USB cable required).
 
 ---
 
@@ -58,19 +60,21 @@ USB: dedicated **USB0_DP / USB0_DM** (no extra pinmux). Both images enumerate as
 From this repository, after installing west, CMake, Ninja, and an ARM GCC (Zephyr SDK **or** `arm-none-eabi-gcc`):
 
 ```bash
-./scripts/build.sh          # both images
-./scripts/build.sh zephyr   # Zephyr only
-./scripts/build.sh freertos # MCUX + FreeRTOS only
+./scripts/build.sh          # all four images (Zephyr/FreeRTOS × USB/RTT)
+./scripts/build.sh zephyr   # Zephyr USB + RTT
+./scripts/build.sh freertos # MCUX + FreeRTOS USB + RTT
 ```
 
 Outputs:
 
 | Image | Path |
 |-------|------|
-| Zephyr | `build-zephyr/zephyr/zephyr.elf` |
-| FreeRTOS | `build-freertos/wunderbar_freertos_blinky.elf` |
+| Zephyr USB CDC | `build-zephyr/zephyr/zephyr.elf` |
+| Zephyr RTT | `build-zephyr-rtt/zephyr/zephyr.elf` |
+| FreeRTOS USB CDC | `build-freertos/wunderbar_freertos_blinky.elf` |
+| FreeRTOS RTT | `build-freertos-rtt/wunderbar_freertos_blinky.elf` |
 
-GitHub Actions (`.github/workflows/build.yml`) builds the same two images on every push/PR.
+GitHub Actions (`.github/workflows/build.yml`) builds the same four images on every push/PR.
 
 ---
 
@@ -112,6 +116,18 @@ Plug the module USB into the host and open the CDC port to see `LED ON` / `LED O
 
 ```bash
 picocom -b 115200 /dev/ttyACM0
+```
+
+RTT image (J-Link connected over SWD):
+
+```bash
+west build -b wunderbar_master/mk64f12 \
+  wunderbar-master-node/apps/zephyr_blinky \
+  -d build-zephyr-rtt -- \
+  -DEXTRA_CONF_FILE=rtt.conf \
+  -DEXTRA_DTC_OVERLAY_FILE=rtt.overlay
+
+JLinkRTTClient
 ```
 
 ---
@@ -157,9 +173,9 @@ cmake -S . -B build -G Ninja \
 cmake --build build
 ```
 
-Output: `build/wunderbar_freertos_blinky.elf` (or `build-freertos/` when using `scripts/build.sh`) plus `.hex` / `.bin`.
+Output: `build/wunderbar_freertos_blinky.elf` (or `build-freertos/` / `build-freertos-rtt/` when using `scripts/build.sh`) plus `.hex` / `.bin`.
 
-USB CDC logs (`LED toggle (FreeRTOS)`) appear on the same host serial port as Zephyr after you open a terminal (DTR). The LED is turned on in `main` before the scheduler starts, then toggles every 500 ms.
+USB CDC logs (`LED toggle (FreeRTOS USB)`) appear on the host serial port after you open a terminal (DTR). RTT logs (`LED toggle (FreeRTOS RTT)`) appear in J-Link RTT Viewer / `JLinkRTTClient`. The LED is turned on in `main` before the scheduler starts, then toggles every 500 ms.
 
 ---
 

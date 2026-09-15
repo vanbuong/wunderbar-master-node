@@ -3,13 +3,22 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * WunderBar master blinky — LED on PTA29 via Zephyr GPIO.
- * Logs go to USB CDC ACM (host /dev/ttyACM* or COMx).
+ *
+ * Default image: USB CDC ACM console (/dev/ttyACM* or COMx).
+ * RTT image (rtt.conf + rtt.overlay): SEGGER RTT via J-Link.
  */
 
 #include <stdio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
+
+#if DT_HAS_CHOSEN(zephyr_console) && \
+	DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_console), zephyr_cdc_acm_uart)
+#define CONSOLE_IS_USB_CDC 1
 #include <zephyr/drivers/uart.h>
+#else
+#define CONSOLE_IS_USB_CDC 0
+#endif
 
 #define SLEEP_TIME_MS 500
 #define DTR_WAIT_MS 5000
@@ -20,11 +29,9 @@
 #error "Overlay/board must define alias led0 (PTA29)"
 #endif
 
-BUILD_ASSERT(DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_console), zephyr_cdc_acm_uart),
-	     "Console device is not ACM CDC UART device");
-
 static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
 
+#if CONSOLE_IS_USB_CDC
 static void wait_for_dtr(void)
 {
 	const struct device *const cons = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
@@ -42,6 +49,7 @@ static void wait_for_dtr(void)
 		waited += 100;
 	}
 }
+#endif
 
 int main(void)
 {
@@ -59,8 +67,12 @@ int main(void)
 		return 0;
 	}
 
+#if CONSOLE_IS_USB_CDC
 	wait_for_dtr();
-	printf("WunderBar blinky on PTA29 (Zephyr)\n");
+	printf("WunderBar blinky on PTA29 (Zephyr USB)\n");
+#else
+	printf("WunderBar blinky on PTA29 (Zephyr RTT)\n");
+#endif
 
 	while (1) {
 		ret = gpio_pin_toggle_dt(&led);

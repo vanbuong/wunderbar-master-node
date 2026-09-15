@@ -5,18 +5,16 @@
 #        a) FRDM-K64F ARM-GCC zip from https://mcuxpresso.nxp.com/en/builder
 #           (include FreeRTOS), or
 #        b) GitHub sources via ../../scripts/fetch_mcux_sdk.sh
-#   2. TinyUSB 0.17.x (fetched by fetch_mcux_sdk.sh into .deps/src/tinyusb).
+#   2. TinyUSB 0.17.x and SEGGER RTT (fetched by fetch_mcux_sdk.sh).
 #   3. arm-none-eabi-gcc on PATH (or set TOOLCHAIN_PREFIX).
 #   4. CMake >= 3.20 and Ninja (or MinGW Makefiles).
 #
 # Build
 #   ../../scripts/build.sh freertos
-#   # or:
-#   cmake -S . -B build \
-#     -G Ninja \
-#     -DMCU_SDK_PATH=/path/to/SDK_2.x_FRDM-K64F \
-#     -DCMAKE_BUILD_TYPE=Debug
-#   cmake --build build
+#   # USB CDC (default):
+#   cmake -S . -B build -G Ninja -DMCU_SDK_PATH=... -DLOG_BACKEND=USB
+#   # SEGGER RTT:
+#   cmake -S . -B build-rtt -G Ninja -DMCU_SDK_PATH=... -DLOG_BACKEND=RTT
 #
 # Flash (example with J-Link)
 #   JLinkExe -device MK24FN1M0xxx12 -if SWD -speed 4000
@@ -122,7 +120,6 @@ add_compile_definitions(
   CPU_${MCU_DEVICE}
   __STARTUP_CLEAR_BSS
   SDK_DEBUGCONSOLE=0
-  CFG_TUSB_MCU=OPT_MCU_KINETIS_K
 )
 
 include_directories(
@@ -180,49 +177,90 @@ set(FREERTOS_SOURCES
   ${FREERTOS_PATH}/portable/GCC/ARM_CM4F/port.c
 )
 
-if(NOT TINYUSB_PATH)
-  foreach(_tusb IN ITEMS
-      "${MCU_SDK_PATH}/middleware/tinyusb"
-      "${MCU_SDK_PATH}/../src/tinyusb"
-      "${MCU_SDK_PATH}/../tinyusb"
-      "${CMAKE_CURRENT_SOURCE_DIR}/../../.deps/src/tinyusb")
-    if(EXISTS "${_tusb}/src/tusb.c")
-      set(TINYUSB_PATH "${_tusb}")
-      break()
-    endif()
-  endforeach()
-endif()
-if(NOT TINYUSB_PATH)
-  message(FATAL_ERROR
-    "TinyUSB not found. Run ../../scripts/fetch_mcux_sdk.sh "
-    "or pass -DTINYUSB_PATH=/path/to/tinyusb")
-endif()
+set(LOG_BACKEND "USB" CACHE STRING "Log backend: USB (CDC ACM) or RTT (SEGGER J-Link)")
+string(TOUPPER "${LOG_BACKEND}" LOG_BACKEND_UPPER)
 
-set(TINYUSB_SOURCES
-  ${TINYUSB_PATH}/src/tusb.c
-  ${TINYUSB_PATH}/src/common/tusb_fifo.c
-  ${TINYUSB_PATH}/src/device/usbd.c
-  ${TINYUSB_PATH}/src/device/usbd_control.c
-  ${TINYUSB_PATH}/src/class/cdc/cdc_device.c
-  ${TINYUSB_PATH}/src/portable/nxp/khci/dcd_khci.c
-)
-
-include_directories(
-  ${TINYUSB_PATH}/src
-)
-
-add_executable(${PROJECT_NAME}.elf
+set(APP_SOURCES
   src/main.c
-  src/usb_descriptors.c
   src/syscalls.c
   board/clock_config.c
   board/pin_mux.c
   board/board.c
+)
+set(LOG_SOURCES)
+
+if(LOG_BACKEND_UPPER STREQUAL "RTT")
+  add_compile_definitions(LOG_BACKEND_RTT=1)
+  if(NOT SEGGER_RTT_PATH)
+    foreach(_rtt IN ITEMS
+        "${MCU_SDK_PATH}/middleware/segger-rtt"
+        "${MCU_SDK_PATH}/../src/segger-rtt"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../.deps/src/segger-rtt")
+      if(EXISTS "${_rtt}/RTT/SEGGER_RTT.c")
+        set(SEGGER_RTT_PATH "${_rtt}")
+        break()
+      endif()
+      if(EXISTS "${_rtt}/SEGGER_RTT.c")
+        set(SEGGER_RTT_PATH "${_rtt}")
+        break()
+      endif()
+    endforeach()
+  endif()
+  if(NOT SEGGER_RTT_PATH)
+    message(FATAL_ERROR
+      "SEGGER RTT not found. Run ../../scripts/fetch_mcux_sdk.sh "
+      "or pass -DSEGGER_RTT_PATH=/path/to/SEGGERMicro/RTT")
+  endif()
+  if(EXISTS "${SEGGER_RTT_PATH}/RTT/SEGGER_RTT.c")
+    set(SEGGER_RTT_SRC "${SEGGER_RTT_PATH}/RTT/SEGGER_RTT.c")
+    include_directories(${SEGGER_RTT_PATH}/RTT ${SEGGER_RTT_PATH}/Config)
+  else()
+    set(SEGGER_RTT_SRC "${SEGGER_RTT_PATH}/SEGGER_RTT.c")
+    include_directories(${SEGGER_RTT_PATH})
+  endif()
+  list(APPEND LOG_SOURCES ${SEGGER_RTT_SRC})
+  message(STATUS "FreeRTOS log backend: SEGGER RTT (${SEGGER_RTT_PATH})")
+elseif(LOG_BACKEND_UPPER STREQUAL "USB")
+  add_compile_definitions(CFG_TUSB_MCU=OPT_MCU_KINETIS_K)
+  if(NOT TINYUSB_PATH)
+    foreach(_tusb IN ITEMS
+        "${MCU_SDK_PATH}/middleware/tinyusb"
+        "${MCU_SDK_PATH}/../src/tinyusb"
+        "${MCU_SDK_PATH}/../tinyusb"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../.deps/src/tinyusb")
+      if(EXISTS "${_tusb}/src/tusb.c")
+        set(TINYUSB_PATH "${_tusb}")
+        break()
+      endif()
+    endforeach()
+  endif()
+  if(NOT TINYUSB_PATH)
+    message(FATAL_ERROR
+      "TinyUSB not found. Run ../../scripts/fetch_mcux_sdk.sh "
+      "or pass -DTINYUSB_PATH=/path/to/tinyusb")
+  endif()
+  include_directories(${TINYUSB_PATH}/src)
+  list(APPEND APP_SOURCES src/usb_descriptors.c)
+  list(APPEND LOG_SOURCES
+    ${TINYUSB_PATH}/src/tusb.c
+    ${TINYUSB_PATH}/src/common/tusb_fifo.c
+    ${TINYUSB_PATH}/src/device/usbd.c
+    ${TINYUSB_PATH}/src/device/usbd_control.c
+    ${TINYUSB_PATH}/src/class/cdc/cdc_device.c
+    ${TINYUSB_PATH}/src/portable/nxp/khci/dcd_khci.c
+  )
+  message(STATUS "FreeRTOS log backend: USB CDC ACM (${TINYUSB_PATH})")
+else()
+  message(FATAL_ERROR "LOG_BACKEND must be USB or RTT (got '${LOG_BACKEND}')")
+endif()
+
+add_executable(${PROJECT_NAME}.elf
+  ${APP_SOURCES}
   ${DEVICE_STARTUP}
   ${DEVICE_SYSTEM}
   ${SDK_DRIVERS}
   ${FREERTOS_SOURCES}
-  ${TINYUSB_SOURCES}
+  ${LOG_SOURCES}
 )
 
 target_link_options(${PROJECT_NAME}.elf PRIVATE

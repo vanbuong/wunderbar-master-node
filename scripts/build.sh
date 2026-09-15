@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Build WunderBar master blinky for Zephyr, FreeRTOS, or both.
+# Each OS produces USB CDC and SEGGER RTT images (four ELFs for "all").
 #
-#   ./scripts/build.sh              # both
+#   ./scripts/build.sh              # all four
 #   ./scripts/build.sh zephyr
 #   ./scripts/build.sh freertos
 #
@@ -64,10 +65,19 @@ build_zephyr() {
   ensure_west_workspace
 
   local app="$ROOT/apps/zephyr_blinky"
-  local out="${ZEPHYR_BUILD_DIR:-$ROOT/build-zephyr}"
-  echo "Building Zephyr blinky -> $out"
-  west build -b wunderbar_master/mk64f12 "$app" -d "$out" -- -DBOARD_ROOT="$ROOT"
-  echo "Zephyr image: $out/zephyr/zephyr.elf"
+  local out_usb="${ZEPHYR_BUILD_DIR:-$ROOT/build-zephyr}"
+  local out_rtt="${ZEPHYR_RTT_BUILD_DIR:-$ROOT/build-zephyr-rtt}"
+
+  echo "Building Zephyr blinky (USB CDC) -> $out_usb"
+  west build -b wunderbar_master/mk64f12 "$app" -d "$out_usb" -- -DBOARD_ROOT="$ROOT"
+  echo "Zephyr USB image: $out_usb/zephyr/zephyr.elf"
+
+  echo "Building Zephyr blinky (SEGGER RTT) -> $out_rtt"
+  west build -b wunderbar_master/mk64f12 "$app" -d "$out_rtt" -- \
+    -DBOARD_ROOT="$ROOT" \
+    -DEXTRA_CONF_FILE=rtt.conf \
+    -DEXTRA_DTC_OVERLAY_FILE=rtt.overlay
+  echo "Zephyr RTT image: $out_rtt/zephyr/zephyr.elf"
 }
 
 build_freertos() {
@@ -81,13 +91,24 @@ build_freertos() {
     "$ROOT/scripts/fetch_mcux_sdk.sh" "$sdk"
   fi
 
-  local out="${FREERTOS_BUILD_DIR:-$ROOT/build-freertos}"
-  echo "Building FreeRTOS blinky -> $out"
-  cmake -S "$ROOT/apps/mcux_freertos_blinky" -B "$out" -G Ninja \
+  local out_usb="${FREERTOS_BUILD_DIR:-$ROOT/build-freertos}"
+  local out_rtt="${FREERTOS_RTT_BUILD_DIR:-$ROOT/build-freertos-rtt}"
+
+  echo "Building FreeRTOS blinky (USB CDC) -> $out_usb"
+  cmake -S "$ROOT/apps/mcux_freertos_blinky" -B "$out_usb" -G Ninja \
     -DMCU_SDK_PATH="$sdk" \
+    -DLOG_BACKEND=USB \
     -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
-  cmake --build "$out" --parallel "$JOBS"
-  echo "FreeRTOS image: $out/wunderbar_freertos_blinky.elf"
+  cmake --build "$out_usb" --parallel "$JOBS"
+  echo "FreeRTOS USB image: $out_usb/wunderbar_freertos_blinky.elf"
+
+  echo "Building FreeRTOS blinky (SEGGER RTT) -> $out_rtt"
+  cmake -S "$ROOT/apps/mcux_freertos_blinky" -B "$out_rtt" -G Ninja \
+    -DMCU_SDK_PATH="$sdk" \
+    -DLOG_BACKEND=RTT \
+    -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
+  cmake --build "$out_rtt" --parallel "$JOBS"
+  echo "FreeRTOS RTT image: $out_rtt/wunderbar_freertos_blinky.elf"
 }
 
 case "$TARGET" in
