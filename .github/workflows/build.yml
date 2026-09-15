@@ -1,0 +1,73 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  zephyr:
+    name: Zephyr blinky
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: wunderbar-master-node
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Zephyr
+        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          app-path: wunderbar-master-node
+          toolchains: arm-zephyr-eabi
+          sdk-version: "1.0.1"
+
+      - name: Build
+        run: |
+          west build -b wunderbar_master/mk64f12 \
+            wunderbar-master-node/apps/zephyr_blinky \
+            -d build-zephyr \
+            -- -DBOARD_ROOT="${GITHUB_WORKSPACE}/wunderbar-master-node"
+
+      - name: Upload ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: zephyr-blinky
+          path: |
+            build-zephyr/zephyr/zephyr.elf
+            build-zephyr/zephyr/zephyr.bin
+            build-zephyr/zephyr/zephyr.hex
+
+  freertos:
+    name: FreeRTOS blinky
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            gcc-arm-none-eabi libnewlib-arm-none-eabi cmake ninja-build
+
+      - name: Fetch MCUX SDK + FreeRTOS
+        run: ./scripts/fetch_mcux_sdk.sh "$PWD/.deps/mcux-sdk"
+
+      - name: Build
+        run: |
+          cmake -S apps/mcux_freertos_blinky -B build-freertos -G Ninja \
+            -DMCU_SDK_PATH="$PWD/.deps/mcux-sdk" \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-freertos
+
+      - name: Upload ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: freertos-blinky
+          path: |
+            build-freertos/wunderbar_freertos_blinky.elf
+            build-freertos/wunderbar_freertos_blinky.bin
+            build-freertos/wunderbar_freertos_blinky.hex

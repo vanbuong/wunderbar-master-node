@@ -43,9 +43,32 @@ boards/relayr/wunderbar_master/   Zephyr HWMv2 board (12 MHz + PTA29 LED)
 apps/zephyr_blinky/               Zephyr CMake blinky
 apps/mcux_freertos_blinky/        MCUXpresso SDK + FreeRTOS CMake blinky
 west.yml                          Zephyr west manifest (v4.4.2)
+scripts/                          Host build helpers (both images)
+.github/workflows/build.yml       CI for Zephyr + FreeRTOS
 ```
 
 LED: **PTA29** (`GPIOA` pin 29). Default polarity is active-high; flip it in the DTS / `LED_ACTIVE_HIGH` if your LED is wired active-low.
+
+---
+
+## Build both (Zephyr + FreeRTOS)
+
+From this repository, after installing west, CMake, Ninja, and an ARM GCC (Zephyr SDK **or** `arm-none-eabi-gcc`):
+
+```bash
+./scripts/build.sh          # both images
+./scripts/build.sh zephyr   # Zephyr only
+./scripts/build.sh freertos # MCUX + FreeRTOS only
+```
+
+Outputs:
+
+| Image | Path |
+|-------|------|
+| Zephyr | `build-zephyr/zephyr/zephyr.elf` |
+| FreeRTOS | `build-freertos/wunderbar_freertos_blinky.elf` |
+
+GitHub Actions (`.github/workflows/build.yml`) builds the same two images on every push/PR.
 
 ---
 
@@ -56,17 +79,20 @@ Zephyr includes its own kernel/scheduler (this is the usual Zephyr path; you do 
 ### Toolchain
 
 1. Install [West](https://docs.zephyrproject.org/latest/develop/west/install.html): `pip install west`
-2. Install the [Zephyr SDK](https://docs.zephyrproject.org/latest/develop/toolchains/zephyr_sdk.html) (or another ARM toolchain Zephyr accepts)
+2. Install the [Zephyr SDK](https://docs.zephyrproject.org/latest/develop/toolchains/zephyr_sdk.html) (or another ARM toolchain Zephyr accepts). Zephyr 4.4 needs SDK **1.0.x**.
 
 ### Workspace
 
+`west init -l` puts the workspace in the **parent** of this repo, and the repo folder must be named `wunderbar-master-node` (see `self.path` in `west.yml`):
+
 ```bash
-cd E:/Work/Project/NXP
 mkdir wb-zephyr-workspace
 cd wb-zephyr-workspace
 west init -l ../wunderbar-master-node
 west update
 ```
+
+`./scripts/build.sh zephyr` creates that sibling workspace if needed (including when this checkout is named something else, e.g. `workspace`).
 
 ### Build & flash
 
@@ -88,6 +114,15 @@ Separate bare-metal/SDK image that runs **FreeRTOS** and toggles PTA29.
 
 ### Get the SDK
 
+**Option A — GitHub (no NXP login)**
+
+```bash
+./scripts/fetch_mcux_sdk.sh
+# then: MCU_SDK_PATH=$PWD/.deps/mcux-sdk
+```
+
+**Option B — MCUXpresso SDK Builder zip**
+
 1. Open [MCUXpresso SDK Builder](https://mcuxpresso.nxp.com/en/builder)
 2. Board: **FRDM-K64F**
 3. Toolchain: **ARM GCC**
@@ -99,14 +134,20 @@ This app replaces the board clock files with WunderBar’s **12 MHz / 32.768 kHz
 ### Build
 
 ```bash
+./scripts/build.sh freertos
+```
+
+Or CMake directly:
+
+```bash
 cd apps/mcux_freertos_blinky
-cmake -S . -B build -G Ninja ^
-  -DMCU_SDK_PATH=C:/nxp/SDK_2.x_FRDM-K64F ^
+cmake -S . -B build -G Ninja \
+  -DMCU_SDK_PATH=/path/to/SDK_2.x_FRDM-K64F \
   -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 ```
 
-Output: `build/wunderbar_freertos_blinky.elf` (+ `.hex` / `.bin`).
+Output: `build/wunderbar_freertos_blinky.elf` (or `build-freertos/` when using `scripts/build.sh`) plus `.hex` / `.bin`.
 
 ---
 

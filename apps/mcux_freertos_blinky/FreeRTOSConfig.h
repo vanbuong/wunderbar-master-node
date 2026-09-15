@@ -80,6 +80,25 @@ extern uint32_t SystemCoreClock;
 #define configINCLUDE_xTaskGetHandle              0
 #define configINCLUDE_xTaskResumeFromISR          1
 
+/* Standard FreeRTOS names (NXP examples use INCLUDE_*; keep configINCLUDE_* too). */
+#define INCLUDE_vTaskPrioritySet            configINCLUDE_vTaskPrioritySet
+#define INCLUDE_uxTaskPriorityGet           configINCLUDE_uxTaskPriorityGet
+#define INCLUDE_vTaskDelete                 configINCLUDE_vTaskDelete
+#define INCLUDE_vTaskSuspend                configINCLUDE_vTaskSuspend
+#define INCLUDE_xResumeFromISR              configINCLUDE_xResumeFromISR
+#define INCLUDE_vTaskDelayUntil             configINCLUDE_vTaskDelayUntil
+#define INCLUDE_vTaskDelay                  configINCLUDE_vTaskDelay
+#define INCLUDE_xTaskGetSchedulerState      configINCLUDE_xTaskGetSchedulerState
+#define INCLUDE_xTaskGetCurrentTaskHandle   configINCLUDE_xTaskGetCurrentTaskHandle
+#define INCLUDE_uxTaskGetStackHighWaterMark configINCLUDE_uxTaskGetStackHighWaterMark
+#define INCLUDE_xTaskGetIdleTaskHandle      configINCLUDE_xTaskGetIdleTaskHandle
+#define INCLUDE_eTaskGetState               configINCLUDE_eTaskGetState
+#define INCLUDE_xEventGroupSetBitFromISR    configINCLUDE_xEventGroupSetBitFromISR
+#define INCLUDE_xTimerPendFunctionCall      configINCLUDE_xTimerPendFunctionCall
+#define INCLUDE_xTaskAbortDelay             configINCLUDE_xTaskAbortDelay
+#define INCLUDE_xTaskGetHandle              configINCLUDE_xTaskGetHandle
+#define INCLUDE_xTaskResumeFromISR          configINCLUDE_xTaskResumeFromISR
+
 /* Map FreeRTOS handlers to CMSIS names used in the startup file. */
 #define vPortSVCHandler     SVC_Handler
 #define xPortPendSVHandler  PendSV_Handler

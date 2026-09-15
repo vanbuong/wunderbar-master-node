@@ -1,17 +1,19 @@
 # WunderBar master — MCUXpresso SDK + FreeRTOS blinky (PTA29)
 #
 # Prerequisites
-#   1. Download MCUXpresso SDK for FRDM-K64F (includes MK24FN1M0VDC12 family
-#      support / MK64F12 device files) from:
-#        https://mcuxpresso.nxp.com/en/builder
-#      Select board FRDM-K64F, host OS, toolchain = ARM GCC, include FreeRTOS.
+#   1. MCUXpresso SDK with devices/MK64F12, either:
+#        a) FRDM-K64F ARM-GCC zip from https://mcuxpresso.nxp.com/en/builder
+#           (include FreeRTOS), or
+#        b) GitHub sources via ../../scripts/fetch_mcux_sdk.sh
 #   2. arm-none-eabi-gcc on PATH (or set TOOLCHAIN_PREFIX).
 #   3. CMake >= 3.20 and Ninja (or MinGW Makefiles).
 #
 # Build
-#   cmake -S . -B build ^
-#     -G Ninja ^
-#     -DMCU_SDK_PATH=C:/path/to/SDK_2.x_FRDM-K64F ^
+#   ../../scripts/build.sh freertos
+#   # or:
+#   cmake -S . -B build \
+#     -G Ninja \
+#     -DMCU_SDK_PATH=/path/to/SDK_2.x_FRDM-K64F \
 #     -DCMAKE_BUILD_TYPE=Debug
 #   cmake --build build
 #
@@ -43,6 +45,8 @@ if(NOT MCU_SDK_PATH)
 endif()
 
 # Prefer MK64F12 (current SDK layout). Fall back to MK24F12 if present.
+# GitHub legacy-mcux-sdk keeps the device tree at devices/MK64F12; exported
+# FRDM-K64F zips use the same path.
 if(EXISTS "${MCU_SDK_PATH}/devices/MK64F12")
   set(MCU_DEVICE_DIR "${MCU_SDK_PATH}/devices/MK64F12")
   set(MCU_DEVICE     MK64F12)
@@ -53,6 +57,24 @@ elseif(EXISTS "${MCU_SDK_PATH}/devices/MK24F12")
   set(MCU_CPU_DEFINE CPU_MK24FN1M0VDC12)
 else()
   message(FATAL_ERROR "Neither devices/MK64F12 nor devices/MK24F12 found under MCU_SDK_PATH")
+endif()
+
+# CMSIS-Core headers: exported SDK zip, ARM CMSIS_5 overlay, or NXP west layout.
+if(NOT CMSIS_INCLUDE)
+  foreach(_cmsis_inc IN ITEMS
+      "${MCU_SDK_PATH}/CMSIS/Core/Include"
+      "${MCU_SDK_PATH}/core/CMSIS/CMSIS/Core/Include"
+      "${MCU_SDK_PATH}/CMSIS/Include")
+    if(EXISTS "${_cmsis_inc}/core_cm4.h")
+      set(CMSIS_INCLUDE "${_cmsis_inc}")
+      break()
+    endif()
+  endforeach()
+endif()
+if(NOT CMSIS_INCLUDE)
+  message(FATAL_ERROR
+    "CMSIS Core headers not found. Place CMSIS/Core/Include under MCU_SDK_PATH "
+    "or pass -DCMSIS_INCLUDE=/path/to/CMSIS/Core/Include")
 endif()
 
 set(MCU_LD "${MCU_DEVICE_DIR}/gcc/${MCU_DEVICE}N1M0xxx12_flash.ld")
@@ -91,6 +113,7 @@ add_compile_options(
   -Wall
   -fno-common
   -ffreestanding
+  --specs=nano.specs
 )
 
 add_compile_definitions(
@@ -105,8 +128,12 @@ include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/board
   ${MCU_DEVICE_DIR}
   ${MCU_DEVICE_DIR}/drivers
-  ${MCU_SDK_PATH}/CMSIS/Core/Include
+  ${CMSIS_INCLUDE}
   ${MCU_SDK_PATH}/devices/${MCU_DEVICE}/cmsis_drivers
+  ${MCU_SDK_PATH}/drivers/common
+  ${MCU_SDK_PATH}/drivers/gpio
+  ${MCU_SDK_PATH}/drivers/port
+  ${MCU_SDK_PATH}/drivers/smc
   ${FREERTOS_PATH}/include
   ${FREERTOS_PATH}/portable/GCC/ARM_CM4F
 )
@@ -115,22 +142,30 @@ include_directories(
 file(GLOB DEVICE_STARTUP "${MCU_DEVICE_DIR}/gcc/startup_*.S")
 set(DEVICE_SYSTEM "${MCU_DEVICE_DIR}/system_${MCU_DEVICE}.c")
 
-# Minimal drivers for blinky + clock
-set(SDK_DRIVERS
+# Minimal drivers for blinky + clock.
+# Exported FRDM-K64F zips keep these under devices/<part>/drivers/;
+# GitHub legacy-mcux-sdk keeps shared drivers under drivers/<ip>/.
+set(_driver_candidates
   ${MCU_DEVICE_DIR}/drivers/fsl_clock.c
   ${MCU_DEVICE_DIR}/drivers/fsl_gpio.c
   ${MCU_DEVICE_DIR}/drivers/fsl_port.c
   ${MCU_DEVICE_DIR}/drivers/fsl_smc.c
   ${MCU_DEVICE_DIR}/drivers/fsl_common.c
   ${MCU_DEVICE_DIR}/drivers/fsl_common_arm.c
+  ${MCU_SDK_PATH}/drivers/gpio/fsl_gpio.c
+  ${MCU_SDK_PATH}/drivers/port/fsl_port.c
+  ${MCU_SDK_PATH}/drivers/smc/fsl_smc.c
+  ${MCU_SDK_PATH}/drivers/common/fsl_common.c
+  ${MCU_SDK_PATH}/drivers/common/fsl_common_arm.c
 )
 
-# Some SDK revisions fold fsl_common_arm into fsl_common.c
-foreach(_f IN LISTS SDK_DRIVERS)
-  if(NOT EXISTS "${_f}")
-    list(REMOVE_ITEM SDK_DRIVERS "${_f}")
+set(SDK_DRIVERS)
+foreach(_f IN LISTS _driver_candidates)
+  if(EXISTS "${_f}")
+    list(APPEND SDK_DRIVERS "${_f}")
   endif()
 endforeach()
+list(REMOVE_DUPLICATES SDK_DRIVERS)
 
 set(FREERTOS_SOURCES
   ${FREERTOS_PATH}/tasks.c
