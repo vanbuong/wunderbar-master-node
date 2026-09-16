@@ -112,8 +112,9 @@ gs_msg_id_t gs_wifi_get_rssi(int16_t *rssi_dbm);
 const char *gs_wifi_last_ip(void);
 
 /**
- * Query AT+GETTIME=? (ms since Unix epoch on many firmwares).
- * Fills @p unix_sec when parse succeeds; always updates last time cache.
+ * Query AT+GETTIME=? → =<dd/mm/yyyy>,<HH:MM:SS>[,ms since epoch].
+ * Fills @p unix_sec when parse succeeds; updates last time cache only on
+ * a plausible wall-clock value (rejects day-number false positives).
  */
 gs_msg_id_t gs_wifi_gettime(uint32_t *unix_sec);
 
@@ -123,7 +124,7 @@ gs_msg_id_t gs_wifi_gettime(uint32_t *unix_sec);
 gs_msg_id_t gs_wifi_settime(uint32_t unix_sec);
 
 /**
- * SNTP over UDP (pool.ntp.org:123), then SETTIME + GETTIME.
+ * Sync clock via AT+NTIMESYNC (on-module SNTP), with UDP SNTP fallback.
  * On success fills @p unix_sec and a UTC "YYYY-MM-DD HH:MM:SS" string.
  */
 gs_msg_id_t gs_wifi_ntp_sync(uint32_t *unix_sec, char *time_str, size_t time_str_len);

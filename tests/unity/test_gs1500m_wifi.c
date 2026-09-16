@@ -236,10 +236,31 @@ void test_wifi_ntp_sync_sets_time(void)
 			      gs_wifi_ntp_sync(&unix_sec, time_str, sizeof(time_str)));
 	TEST_ASSERT_EQUAL_UINT(1758038400U, unix_sec);
 	TEST_ASSERT_TRUE(time_str[0] != '\0');
-	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+NCUDP="));
-	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+SETTIME="));
+	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+NTIMESYNC=1,"));
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+GETTIME=?\r\n"));
 	TEST_ASSERT_EQUAL_STRING(time_str, gs_wifi_last_time_str());
+}
+
+void test_wifi_gettime_parses_doc_format(void)
+{
+	uint32_t unix_sec = 0;
+
+	s_stub.auto_ok = false;
+	gs_stub_rx_push_str(&s_stub, "=16/09/2025,16:00:00,1758038400000\r\nOK\r\n");
+	TEST_ASSERT_EQUAL_INT(GS_MSG_OK, gs_wifi_gettime(&unix_sec));
+	TEST_ASSERT_EQUAL_UINT(1758038400U, unix_sec);
+	TEST_ASSERT_EQUAL_STRING("2025-09-16 16:00:00", gs_wifi_last_time_str());
+}
+
+void test_wifi_gettime_rejects_day_false_positive(void)
+{
+	uint32_t unix_sec = 99;
+
+	s_stub.auto_ok = false;
+	/* Old bug: first digits "16" from dd/mm/yyyy became unix=16. */
+	gs_stub_rx_push_str(&s_stub, "=16/09/1970,00:00:16\r\nOK\r\n");
+	TEST_ASSERT_EQUAL_INT(GS_MSG_OK, gs_wifi_gettime(&unix_sec));
+	TEST_ASSERT_EQUAL_UINT(0U, unix_sec);
 }
 
 void test_user_sm_queries_ip_and_ntp(void)
@@ -341,6 +362,8 @@ int main(void)
 	RUN_TEST(test_limited_ap_start_sequence);
 	RUN_TEST(test_wifi_get_status_parses_ip_addr);
 	RUN_TEST(test_wifi_ntp_sync_sets_time);
+	RUN_TEST(test_wifi_gettime_parses_doc_format);
+	RUN_TEST(test_wifi_gettime_rejects_day_false_positive);
 	RUN_TEST(test_user_sm_queries_ip_and_ntp);
 	RUN_TEST(test_user_sm_lap_fallback_on_join_error);
 	RUN_TEST(test_at_wait_accepts_partial_ok_without_crlf);

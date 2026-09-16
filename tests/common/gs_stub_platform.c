@@ -93,11 +93,20 @@ static void stub_queue_response_for_cmd(gs_stub_ctx_t *ctx, const char *cmd)
 		return;
 	}
 	if (strncmp(cmd, "AT+GETTIME=?", 12) == 0) {
-		gs_stub_rx_push_str(ctx, "1758038400000\r\nOK\r\n");
+		/* Doc format: =<dd/mm/yyyy>,<HH:MM:SS>,ms-since-epoch */
+		gs_stub_rx_push_str(ctx, "=16/09/2025,16:00:00,1758038400000\r\nOK\r\n");
 		return;
 	}
 	if (strncmp(cmd, "AT+SETTIME=", 11) == 0) {
 		gs_stub_rx_push_str(ctx, "OK\r\n");
+		return;
+	}
+	if (strncmp(cmd, "AT+NTIMESYNC=", 13) == 0) {
+		gs_stub_rx_push_str(ctx, "OK\r\n");
+		return;
+	}
+	if (strncmp(cmd, "AT+DNSLOOKUP=", 13) == 0) {
+		gs_stub_rx_push_str(ctx, "IP:162.159.200.1\r\nOK\r\n");
 		return;
 	}
 	if (strncmp(cmd, "AT+WRSSI=?", 10) == 0) {

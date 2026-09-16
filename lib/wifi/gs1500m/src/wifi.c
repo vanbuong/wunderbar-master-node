@@ -118,14 +118,24 @@ static bool looks_like_mac(const char *s)
 	return true;
 }
 
+static bool blob_looks_like_ip_dump(const char *blob)
+{
+	/* WA/NSTAT lines: "192.168.x.x:255.255.255.0:192.168.x.x" */
+	return blob && (strstr(blob, "IP addr") || strstr(blob, "SubNet") ||
+			(strchr(blob, ':') && strstr(blob, "255.")));
+}
+
 static void parse_version_blob(gs_wifi_module_info_t *info, const char *blob)
 {
 	const char *v;
 
-	if (!info) {
+	if (!info || !blob) {
 		return;
 	}
-	copy_field(info->version, sizeof(info->version), blob);
+	/* Never treat association IP dumps as a firmware version string. */
+	if (!blob_looks_like_ip_dump(blob)) {
+		copy_field(info->version, sizeof(info->version), blob);
+	}
 	v = find_keyed_value(blob, "S2W APP VERSION");
 	if (!v) {
 		v = find_keyed_value(blob, "APP VERSION");
@@ -885,6 +895,32 @@ static void unix_to_ymdhms(uint32_t unix_sec, int *y, int *mo, int *d,
 	*d = day;
 }
 
+static uint32_t ymdhms_to_unix(int y, int mo, int d, int hh, int mm, int ss)
+{
+	/* days_from_civil (Howard Hinnant) → Unix seconds UTC. */
+	int64_t y0;
+	unsigned m0;
+	int64_t era;
+	unsigned yoe;
+	unsigned doy;
+	unsigned doe;
+	int64_t days;
+
+	y0 = (int64_t)y - (mo <= 2 ? 1 : 0);
+	m0 = (unsigned)(mo <= 2 ? (mo + 9) : (mo - 3));
+	era = (y0 >= 0) ? (y0 / 400) : ((y0 - 399) / 400);
+	yoe = (unsigned)(y0 - era * 400);
+	doy = (153U * m0 + 2U) / 5U + (unsigned)(d - 1);
+	doe = yoe * 365U + yoe / 4U - yoe / 100U + doy;
+	days = era * 146097LL + (int64_t)doe - 719468LL;
+	if (days < 0 || hh < 0 || mm < 0 || ss < 0 || hh > 23 || mm > 59 ||
+	    ss > 60) {
+		return 0U;
+	}
+	return (uint32_t)(days * 86400LL + (int64_t)hh * 3600LL +
+			  (int64_t)mm * 60LL + (int64_t)ss);
+}
+
 static void format_time_str(char *dst, size_t dst_len, uint32_t unix_sec)
 {
 	int y, mo, d, hh, mm, ss;
@@ -895,6 +931,96 @@ static void format_time_str(char *dst, size_t dst_len, uint32_t unix_sec)
 	unix_to_ymdhms(unix_sec, &y, &mo, &d, &hh, &mm, &ss);
 	snprintf(dst, dst_len, "%04d-%02d-%02d %02d:%02d:%02d", y, mo, d, hh, mm,
 		 ss);
+}
+
+/* Reject GETTIME day-number false positives (e.g. "16" from dd/mm/yyyy). */
+static bool unix_time_plausible(uint32_t unix_sec)
+{
+	/* 2020-01-01 .. ~2100 */
+	return unix_sec >= 1577836800UL && unix_sec < 4102444800UL;
+}
+
+/*
+ * GS docs: AT+GETTIME=? → =<dd/mm/yyyy>,<HH:MM:SS>[,ms since epoch]
+ * Also accept a bare millisecond / second epoch field.
+ */
+static bool parse_gettime_blob(const char *blob, uint32_t *unix_out)
+{
+	const char *p;
+	int dd = 0;
+	int mo = 0;
+	int yyyy = 0;
+	int hh = 0;
+	int mm = 0;
+	int ss = 0;
+	uint64_t ms = 0ULL;
+	uint32_t from_civil;
+	int n;
+
+	if (!blob || !unix_out) {
+		return false;
+	}
+	p = blob;
+	while (*p == ' ' || *p == '\t' || *p == '=' || *p == '\r' || *p == '\n') {
+		p++;
+	}
+
+	n = sscanf(p, "%d/%d/%d,%d:%d:%d", &dd, &mo, &yyyy, &hh, &mm, &ss);
+	if (n == 6 && dd >= 1 && dd <= 31 && mo >= 1 && mo <= 12 && yyyy >= 1970) {
+		const char *q = strchr(p, ',');
+
+		from_civil = ymdhms_to_unix(yyyy, mo, dd, hh, mm, ss);
+		/* Optional third field: milliseconds since epoch. */
+		if (q) {
+			q = strchr(q + 1, ',');
+			if (q) {
+				q++;
+				while (*q == ' ' || *q == '\t') {
+					q++;
+				}
+				if (isdigit((unsigned char)*q)) {
+					ms = 0ULL;
+					while (isdigit((unsigned char)*q)) {
+						ms = (ms * 10ULL) +
+						     (uint64_t)(*q - '0');
+						q++;
+					}
+					if (ms > 100000000000ULL) {
+						*unix_out = (uint32_t)(ms / 1000ULL);
+						return unix_time_plausible(*unix_out);
+					}
+					if (ms > 1000000000ULL) {
+						*unix_out = (uint32_t)ms;
+						return unix_time_plausible(*unix_out);
+					}
+				}
+			}
+		}
+		if (unix_time_plausible(from_civil)) {
+			*unix_out = from_civil;
+			return true;
+		}
+		return false;
+	}
+
+	/* Bare epoch (ms or s) — skip non-digits; require plausible magnitude. */
+	while (*p && !isdigit((unsigned char)*p)) {
+		p++;
+	}
+	if (!*p) {
+		return false;
+	}
+	ms = 0ULL;
+	while (isdigit((unsigned char)*p)) {
+		ms = (ms * 10ULL) + (uint64_t)(*p - '0');
+		p++;
+	}
+	if (ms > 100000000000ULL) {
+		*unix_out = (uint32_t)(ms / 1000ULL);
+	} else {
+		*unix_out = (uint32_t)ms;
+	}
+	return unix_time_plausible(*unix_out);
 }
 
 gs_msg_id_t gs_wifi_settime(uint32_t unix_sec)
@@ -914,8 +1040,7 @@ gs_msg_id_t gs_wifi_gettime(uint32_t *unix_sec)
 {
 	gs_msg_id_t id;
 	const char *blob;
-	const char *p;
-	uint64_t ms = 0ULL;
+	uint32_t parsed = 0U;
 
 	id = gs_at_send_cmd("AT+GETTIME=?\r\n", GS_AT_DEFAULT_CMD_TIMEOUT_MS);
 	blob = gs_at_info_accum();
@@ -925,29 +1050,17 @@ gs_msg_id_t gs_wifi_gettime(uint32_t *unix_sec)
 	if ((!blob || !blob[0])) {
 		blob = gs_at_last_line();
 	}
-
-	if (blob && blob[0]) {
-		p = blob;
-		while (*p && !isdigit((unsigned char)*p)) {
-			p++;
-		}
-		while (isdigit((unsigned char)*p)) {
-			ms = (ms * 10ULL) + (uint64_t)(*p - '0');
-			p++;
-		}
+	/* Also accept unterminated GETTIME body left in the partial line. */
+	if ((!blob || !blob[0] || !parse_gettime_blob(blob, &parsed)) &&
+	    gs_at_partial_line()[0]) {
+		blob = gs_at_partial_line();
 	}
 
-	if (ms > 0ULL) {
-		/* Module returns ms since epoch; accept seconds if small. */
-		if (ms > 100000000000ULL) {
-			s_last_unix_time = (uint32_t)(ms / 1000ULL);
-		} else {
-			s_last_unix_time = (uint32_t)ms;
-		}
-		format_time_str(s_last_time_str, sizeof(s_last_time_str),
-				s_last_unix_time);
+	if (blob && parse_gettime_blob(blob, &parsed)) {
+		s_last_unix_time = parsed;
+		format_time_str(s_last_time_str, sizeof(s_last_time_str), parsed);
 		if (unix_sec) {
-			*unix_sec = s_last_unix_time;
+			*unix_sec = parsed;
 		}
 	} else if (unix_sec) {
 		*unix_sec = 0U;
@@ -1016,9 +1129,103 @@ static uint32_t ntp_extract_unix(const uint8_t pkt[48])
 	return secs - GS_NTP_UNIX_DELTA;
 }
 
-gs_msg_id_t gs_wifi_ntp_sync(uint32_t *unix_sec, char *time_str, size_t time_str_len)
+static bool looks_like_ipv4(const char *s)
 {
-	gs_at_callbacks_t prev;
+	int a, b, c, d;
+
+	if (!s) {
+		return false;
+	}
+	return sscanf(s, "%d.%d.%d.%d", &a, &b, &c, &d) == 4 && a >= 0 &&
+	       a <= 255 && b >= 0 && b <= 255 && c >= 0 && c <= 255 && d >= 0 &&
+	       d <= 255;
+}
+
+static gs_msg_id_t dns_lookup_ipv4(const char *host, char *ip, size_t ip_len)
+{
+	gs_msg_id_t id;
+	const char *blob;
+	const char *p;
+
+	if (!host || !ip || ip_len < 8U) {
+		return GS_MSG_INVALID_INPUT;
+	}
+	ip[0] = '\0';
+	id = gs_at_send_cmdf(8000U, "AT+DNSLOOKUP=%s,2,3\r\n", host);
+	blob = gs_at_info_accum();
+	if ((!blob || !blob[0]) && gs_at_last_info_line()[0]) {
+		blob = gs_at_last_info_line();
+	}
+	if ((!blob || !blob[0])) {
+		blob = gs_at_last_line();
+	}
+	if (!blob) {
+		return (id == GS_MSG_OK) ? GS_MSG_ERROR : id;
+	}
+	p = strstr(blob, "IP:");
+	if (p) {
+		p += 3;
+	} else {
+		p = blob;
+		while (*p && !isdigit((unsigned char)*p)) {
+			p++;
+		}
+	}
+	while (*p == ' ' || *p == '\t') {
+		p++;
+	}
+	copy_token(ip, ip_len, p);
+	if (!looks_like_ipv4(ip)) {
+		ip[0] = '\0';
+		return (id == GS_MSG_OK) ? GS_MSG_ERROR : id;
+	}
+	return GS_MSG_OK;
+}
+
+/*
+ * Prefer module AT+NTIMESYNC (SNTP on-chip). Server IP is mandatory per docs.
+ * One-shot: Enable=1, Periodic=0. Then verify with GETTIME.
+ */
+static gs_msg_id_t ntp_sync_via_ntimesync(uint32_t *unix_out)
+{
+	static const char *const servers[] = {
+		"162.159.200.1",  /* Cloudflare */
+		"216.239.35.0",   /* time.google.com */
+		"pool.ntp.org",   /* may need DNSLOOKUP first */
+	};
+	size_t si;
+	char ip[48];
+	gs_msg_id_t id;
+	uint32_t got = 0U;
+
+	for (si = 0; si < sizeof(servers) / sizeof(servers[0]); si++) {
+		ip[0] = '\0';
+		if (looks_like_ipv4(servers[si])) {
+			copy_field(ip, sizeof(ip), servers[si]);
+		} else if (dns_lookup_ipv4(servers[si], ip, sizeof(ip)) !=
+			   GS_MSG_OK) {
+			continue;
+		}
+
+		/* AT+NTIMESYNC=<Enable>,<ServerIP>,<Timeout>,<Periodic> */
+		id = gs_at_send_cmdf(20000U, "AT+NTIMESYNC=1,%s,10,0\r\n", ip);
+		if (id != GS_MSG_OK) {
+			continue;
+		}
+		delay_ms(200);
+		if (gs_wifi_gettime(&got) == GS_MSG_OK &&
+		    unix_time_plausible(got)) {
+			if (unix_out) {
+				*unix_out = got;
+			}
+			return GS_MSG_OK;
+		}
+	}
+	return GS_MSG_TIMEOUT;
+}
+
+static gs_msg_id_t ntp_sync_via_udp(uint32_t *unix_out)
+{
 	gs_at_callbacks_t cbs;
 	gs_ntp_rx_t rx;
 	uint8_t cid = GS_AT_INVALID_CID;
@@ -1036,8 +1243,6 @@ gs_msg_id_t gs_wifi_ntp_sync(uint32_t *unix_sec, char *time_str, size_t time_str
 	memset(req, 0, sizeof(req));
 	req[0] = 0x1BU; /* LI=0 VN=3 Mode=3 (client) */
 
-	/* Preserve any existing callbacks (apps rarely set them during bring-up). */
-	prev = (gs_at_callbacks_t){ 0 };
 	cbs.on_data = ntp_on_data;
 	cbs.on_line = NULL;
 	cbs.user = &rx;
@@ -1066,30 +1271,64 @@ gs_msg_id_t gs_wifi_ntp_sync(uint32_t *unix_sec, char *time_str, size_t time_str
 		(void)gs_socket_close(cid);
 		if (id == GS_MSG_OK && rx.len >= 48U) {
 			unix_t = ntp_extract_unix(rx.buf);
-			if (unix_t != 0U) {
+			if (unix_time_plausible(unix_t)) {
 				break;
 			}
+			unix_t = 0U;
 		}
 		id = GS_MSG_TIMEOUT;
 	}
 
 	gs_at_set_callbacks(NULL);
-	(void)prev;
 
-	if (unix_t == 0U) {
+	if (!unix_time_plausible(unix_t)) {
+		return (id == GS_MSG_OK) ? GS_MSG_ERROR : id;
+	}
+	(void)gs_wifi_settime(unix_t);
+	if (unix_out) {
+		*unix_out = unix_t;
+	}
+	return GS_MSG_OK;
+}
+
+gs_msg_id_t gs_wifi_ntp_sync(uint32_t *unix_sec, char *time_str, size_t time_str_len)
+{
+	uint32_t unix_t = 0U;
+	gs_msg_id_t id;
+
+	s_last_unix_time = 0U;
+	s_last_time_str[0] = '\0';
+
+	id = ntp_sync_via_ntimesync(&unix_t);
+	if (id != GS_MSG_OK || !unix_time_plausible(unix_t)) {
+		id = ntp_sync_via_udp(&unix_t);
+	}
+	if (id != GS_MSG_OK || !unix_time_plausible(unix_t)) {
 		if (time_str && time_str_len > 0U) {
 			time_str[0] = '\0';
+		}
+		if (unix_sec) {
+			*unix_sec = 0U;
 		}
 		return (id == GS_MSG_OK) ? GS_MSG_ERROR : id;
 	}
 
 	s_last_unix_time = unix_t;
 	format_time_str(s_last_time_str, sizeof(s_last_time_str), unix_t);
-	(void)gs_wifi_settime(unix_t);
-	(void)gs_wifi_gettime(NULL);
+	/* Refresh from module when possible; keep prior value on parse miss. */
+	{
+		uint32_t verified = 0U;
+
+		if (gs_wifi_gettime(&verified) == GS_MSG_OK &&
+		    unix_time_plausible(verified)) {
+			s_last_unix_time = verified;
+			format_time_str(s_last_time_str, sizeof(s_last_time_str),
+					verified);
+		}
+	}
 
 	if (unix_sec) {
-		*unix_sec = s_last_unix_time ? s_last_unix_time : unix_t;
+		*unix_sec = s_last_unix_time;
 	}
 	if (time_str && time_str_len > 0U) {
 		copy_field(time_str, time_str_len, s_last_time_str);

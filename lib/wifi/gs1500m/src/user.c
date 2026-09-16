@@ -97,7 +97,7 @@ gs_user_state_t gs_user_poll(gs_user_t *u)
 
 	case GS_USER_HTTP_TIME: {
 		uint32_t unix_sec = 0U;
-		/* SNTP over UDP, then SETTIME / GETTIME on the module. */
+		/* On-module SNTP (AT+NTIMESYNC) with UDP fallback; verify GETTIME. */
 		id = gs_wifi_ntp_sync(&unix_sec, NULL, 0U);
 		u->last_msg = id;
 		if (id == GS_MSG_OK) {

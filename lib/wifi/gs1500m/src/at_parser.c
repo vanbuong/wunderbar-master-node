@@ -180,6 +180,9 @@ gs_msg_id_t gs_at_classify_line(const char *line)
 	if (token_at_start(s, "ERROR")) {
 		return GS_MSG_ERROR;
 	}
+	if (strstr(s, "SNTP Busy") || strstr(s, "SNTP BUSY")) {
+		return GS_MSG_ERROR;
+	}
 	/* Exact "OK" after leading whitespace (GainSpan pads some dumps). */
 	if (token_at_start(s, "OK")) {
 		return GS_MSG_OK;
@@ -575,6 +578,8 @@ const char *gs_at_info_accum(void)
 void gs_at_clear_info_accum(void)
 {
 	clear_info_accum();
+	/* Drop stale info from the previous command (e.g. WA IP dump). */
+	s_last_info_line[0] = '\0';
 }
 
 const char *gs_at_partial_line(void)
