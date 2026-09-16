@@ -492,7 +492,11 @@ void gs_wifi_hw_reset(void)
 	p->reset_set(true, p->ctx);  /* drive EXT_RESETn low */
 	delay_ms(100);
 	p->reset_set(false, p->ctx); /* release to input / pull-up */
-	delay_ms(50);
+	/*
+	 * Brief settle only — platform delay drains RX into the ring so the
+	 * boot banner is not lost to HW FIFO overrun before wait_boot_banner.
+	 */
+	delay_ms(20);
 }
 
 static gs_msg_id_t try_link_once(uint32_t baud, int intf_sel, int8_t pgm_idle,

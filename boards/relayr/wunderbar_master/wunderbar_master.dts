@@ -120,7 +120,13 @@ zephyr_udc0: &usbotg {
 &pinctrl {
 	pinmux_uart0: pinmux_uart0 {
 		group0 {
-			pinmux = <UART0_RX_PTD6>, <UART0_TX_PTD7>;
+			pinmux = <UART0_RX_PTD6>;
+			drive-strength = "low";
+			slew-rate = "fast";
+			bias-pull-up;
+		};
+		group1 {
+			pinmux = <UART0_TX_PTD7>;
 			drive-strength = "low";
 			slew-rate = "fast";
 		};

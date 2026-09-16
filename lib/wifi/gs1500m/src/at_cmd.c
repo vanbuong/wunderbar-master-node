@@ -38,10 +38,54 @@ static void delay_ms(uint32_t ms)
 	}
 }
 
+static bool is_terminal_msg(gs_msg_id_t id)
+{
+	switch (id) {
+	case GS_MSG_OK:
+	case GS_MSG_ERROR:
+	case GS_MSG_INVALID_INPUT:
+	case GS_MSG_ERROR_IP_CONFIG:
+	case GS_MSG_ERROR_SOCKET:
+	case GS_MSG_CONNECT:
+	case GS_MSG_CONNECT_SERVER_CLIENT:
+	case GS_MSG_DISCONNECT:
+	case GS_MSG_DISASSOCIATED:
+	case GS_MSG_APP_RESET:
+	case GS_MSG_ESC_OK:
+	case GS_MSG_ESC_FAIL:
+	case GS_MSG_FW_UPDATE_OK:
+		return true;
+	default:
+		return false;
+	}
+}
+
+/*
+ * Some GS1500M replies (especially under poll UART / lost CR) leave a complete
+ * OK/ERROR token in the partial line without CR/LF. After UART idle, promote it.
+ */
+static gs_msg_id_t try_finish_partial_terminal(void)
+{
+	const char *partial = gs_at_partial_line();
+	gs_msg_id_t id;
+
+	if (!partial || !partial[0]) {
+		return GS_MSG_NONE;
+	}
+	id = gs_at_classify_line(partial);
+	if (!is_terminal_msg(id)) {
+		return GS_MSG_NONE;
+	}
+	/* Synthesize EOL so last_line / callbacks stay consistent. */
+	return gs_at_process_byte((uint8_t)'\r');
+}
+
 gs_msg_id_t gs_at_wait_response(uint32_t timeout_ms)
 {
 	const gs_platform_t *p = gs_platform_get();
 	uint32_t start = now_ms();
+	uint32_t last_rx = start;
+	bool saw_rx = false;
 	uint8_t b;
 
 	if (!p || !p->uart_read) {
@@ -53,34 +97,33 @@ gs_msg_id_t gs_at_wait_response(uint32_t timeout_ms)
 	for (;;) {
 		int n = p->uart_read(&b, 1, 10U, p->ctx);
 		if (n > 0) {
-			gs_msg_id_t id = gs_at_process_byte(b);
-			switch (id) {
-			case GS_MSG_OK:
-			case GS_MSG_ERROR:
-			case GS_MSG_INVALID_INPUT:
-			case GS_MSG_ERROR_IP_CONFIG:
-			case GS_MSG_ERROR_SOCKET:
-			case GS_MSG_CONNECT:
-			case GS_MSG_CONNECT_SERVER_CLIENT:
-			case GS_MSG_DISCONNECT:
-			case GS_MSG_DISASSOCIATED:
-			case GS_MSG_APP_RESET:
-			case GS_MSG_ESC_OK:
-			case GS_MSG_ESC_FAIL:
-			case GS_MSG_FW_UPDATE_OK:
+			gs_msg_id_t id;
+
+			saw_rx = true;
+			last_rx = now_ms();
+			id = gs_at_process_byte(b);
+			if (is_terminal_msg(id)) {
 				return id;
+			}
 			/*
 			 * WELCOME ("Serial2WiFi APP") is a boot banner that can also
 			 * appear in AT+VER output — do not treat it as a command end.
 			 * APP_RESET ("UnExpected Warm Boot") is a real fault/reset.
 			 */
-			case GS_MSG_WELCOME:
-			default:
-				break;
+		} else if (saw_rx && (now_ms() - last_rx) >= 50U) {
+			gs_msg_id_t id = try_finish_partial_terminal();
+
+			if (is_terminal_msg(id)) {
+				return id;
 			}
 		}
 
 		if ((now_ms() - start) >= timeout_ms) {
+			gs_msg_id_t id = try_finish_partial_terminal();
+
+			if (is_terminal_msg(id)) {
+				return id;
+			}
 			return GS_MSG_TIMEOUT;
 		}
 		delay_ms(1);

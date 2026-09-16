@@ -309,6 +309,18 @@ void test_user_sm_lap_fallback_on_join_error(void)
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+WA=WB-AP,,6\r\n"));
 }
 
+void test_at_wait_accepts_partial_ok_without_crlf(void)
+{
+	/*
+	 * Zephyr poll UART / lost CR: module leaves "OK" without CR/LF.
+	 * wait_response must accept it after UART idle (ATE0 failure mode).
+	 */
+	s_stub.auto_ok = false;
+	gs_stub_rx_push_str(&s_stub, "OK");
+	TEST_ASSERT_EQUAL_INT(GS_MSG_OK, gs_at_send_cmd("AT\r\n", 500U));
+	TEST_ASSERT_EQUAL_STRING("OK", gs_at_last_line());
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -331,5 +343,6 @@ int main(void)
 	RUN_TEST(test_wifi_ntp_sync_sets_time);
 	RUN_TEST(test_user_sm_queries_ip_and_ntp);
 	RUN_TEST(test_user_sm_lap_fallback_on_join_error);
+	RUN_TEST(test_at_wait_accepts_partial_ok_without_crlf);
 	return UNITY_END();
 }
