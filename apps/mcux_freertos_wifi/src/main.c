@@ -11,6 +11,7 @@
 #include "board.h"
 #include "fsl_gpio.h"
 #include "fsl_clock.h"
+#include "fsl_uart.h"
 #include "wb_log.h"
 
 #include "gs1500m/wifi.h"
@@ -211,11 +212,13 @@ static void prvWifiTask(void *pvParameters)
 		}
 	}
 
-	WB_LOGI("UART0 %u baud, src=%u Hz, INTF_SEL=%u PGM_idle=%u",
+	WB_LOGI("UART0 %u baud, src=%u Hz, INTF_SEL=%u PGM_idle=%u SBR=%u BRFA=%u",
 		(unsigned)GS_UART_BAUD_DEFAULT,
 		(unsigned)CLOCK_GetFreq(UART0_CLK_SRC),
 		(unsigned)GS_INTF_SEL_UART_LEVEL,
-		(unsigned)GS_PGM_IDLE_LEVEL);
+		(unsigned)GS_PGM_IDLE_LEVEL,
+		(unsigned)((UART0->BDH & UART_BDH_SBR_MASK) << 8 | UART0->BDL),
+		(unsigned)(UART0->C4 & UART_C4_BRFA_MASK));
 	{
 		const wb_wifi_cred_t *c = wb_wifi_cred_at_flash();
 		WB_LOGI("cred @0x%08X raw=%02X%02X%02X%02X%02X%02X%02X%02X",

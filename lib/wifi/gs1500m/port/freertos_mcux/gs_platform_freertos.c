@@ -50,20 +50,23 @@ static int freertos_uart_read(uint8_t *data, size_t max_len, uint32_t block_ms,
 	}
 
 	/*
-	 * Do NOT clear framing/noise errors before reading RDRF. Wrong baud
-	 * sets FE on every byte; clearing FE via UART_ClearStatusFlags reads
-	 * and discards D — which made rx_bytes look like 0 forever.
+	 * Match MCUX UART_ReadBlocking / PE FIFO path: wait on RCFIFO count,
+	 * not S1[RDRF]. With PFIFO enabled, RDRF follows the RX watermark and
+	 * can miss single-byte AT replies that still sit in the FIFO.
 	 */
 	while (n < max_len) {
-		uint32_t flags = UART_GetStatusFlags(GS_UART);
+		uint32_t flags;
 
-		if ((flags & kUART_RxDataRegFullFlag) != 0U) {
+		if (UART_GetRxFifoCount(GS_UART) > 0U) {
 			data[n++] = UART_ReadByte(GS_UART);
 			continue;
 		}
+
+		flags = UART_GetStatusFlags(GS_UART);
 		if ((flags & kUART_RxOverrunFlag) != 0U) {
 			(void)UART_ClearStatusFlags(GS_UART, kUART_RxOverrunFlag);
 		}
+
 		if (block_ms == 0U) {
 			break;
 		}
@@ -77,14 +80,12 @@ static int freertos_uart_read(uint8_t *data, size_t max_len, uint32_t block_ms,
 
 static void freertos_uart_flush(void *ctx)
 {
-	uint32_t flags;
 	(void)ctx;
-	flags = UART_GetStatusFlags(GS_UART);
-	if ((flags & kUART_RxOverrunFlag) != 0U) {
-		(void)UART_ClearStatusFlags(GS_UART, kUART_RxOverrunFlag);
-	}
-	while ((UART_GetStatusFlags(GS_UART) & kUART_RxDataRegFullFlag) != 0U) {
+	while (UART_GetRxFifoCount(GS_UART) > 0U) {
 		(void)UART_ReadByte(GS_UART);
+	}
+	if ((UART_GetStatusFlags(GS_UART) & kUART_RxOverrunFlag) != 0U) {
+		(void)UART_ClearStatusFlags(GS_UART, kUART_RxOverrunFlag);
 	}
 }
 
@@ -243,13 +244,27 @@ int gs_platform_freertos_init(gs_platform_t *out)
 	GPIO_PinInit(GPIOD, GS_PIN_SPI_IRQ_NUM, &in_cfg);
 
 	UART_GetDefaultConfig(&uart_config);
+	/*
+	 * Match legacy PE ASerialLdd1: 115200 8N1, no modem/flow-control,
+	 * RX+TX FIFO on. PE used SBR=65 BRFA=3 at SYSCLK≈120 MHz.
+	 */
 	uart_config.baudRate_Bps = GS_UART_BAUD_DEFAULT;
 	uart_config.enableTx = true;
 	uart_config.enableRx = true;
+#if defined(FSL_FEATURE_UART_HAS_FIFO) && FSL_FEATURE_UART_HAS_FIFO
+	uart_config.txFifoWatermark = 0;
+	uart_config.rxFifoWatermark = 1; /* RDRF when ≥1 byte; we poll RCFIFO */
+#endif
+#if defined(FSL_FEATURE_UART_HAS_MODEM_SUPPORT) && FSL_FEATURE_UART_HAS_MODEM_SUPPORT
+	uart_config.enableRxRTS = false;
+	uart_config.enableTxCTS = false;
+#endif
 	if (UART_Init(GS_UART, &uart_config, gs_uart_src_hz()) != kStatus_Success) {
 		return -1;
 	}
 	s_uart_baud = GS_UART_BAUD_DEFAULT;
+	/* Flush like PE after enabling FIFOs. */
+	freertos_uart_flush(NULL);
 
 	if (out) {
 		memset(out, 0, sizeof(*out));
