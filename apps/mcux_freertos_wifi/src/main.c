@@ -160,18 +160,7 @@ static const char *prvStateName(gs_user_state_t st)
 static void prvLogModuleInfo(void)
 {
 	const gs_wifi_module_info_t *mi = gs_wifi_last_module_info();
-	const gs_wifi_init_diag_t *d = gs_wifi_last_init_diag();
 
-	if (d) {
-		WB_LOGI("wifi link: baud=%u intf=%s pgm=%s hw_rst=%d saw_boot=%d rx=%u rst=%u",
-			(unsigned)d->baud,
-			d->intf_sel < 0 ? "float" : (d->intf_sel ? "1" : "0"),
-			d->pgm_idle < 0 ? "float" : (d->pgm_idle ? "1" : "0"),
-			d->hw_reset ? 1 : 0,
-			d->saw_boot ? 1 : 0,
-			(unsigned)d->rx_bytes,
-			(unsigned)d->pins.reset);
-	}
 	if (!mi) {
 		return;
 	}
@@ -266,9 +255,22 @@ static void prvWifiTask(void *pvParameters)
 			WB_LOGI("wifi SM: %s (msg=%d %s)", prvStateName(st),
 				(int)s_user.last_msg, prvMsgName(s_user.last_msg));
 			if (prev == GS_USER_INIT && st != GS_USER_ERROR) {
-				prvLogModuleInfo();
+				const gs_wifi_init_diag_t *d = gs_wifi_last_init_diag();
+				if (d) {
+					WB_LOGI("wifi link: baud=%u intf=%s pgm=%s hw_rst=%d saw_boot=%d rx=%u rst=%u",
+						(unsigned)d->baud,
+						d->intf_sel < 0 ? "float" :
+							(d->intf_sel ? "1" : "0"),
+						d->pgm_idle < 0 ? "float" :
+							(d->pgm_idle ? "1" : "0"),
+						d->hw_reset ? 1 : 0,
+						d->saw_boot ? 1 : 0,
+						(unsigned)d->rx_bytes,
+						(unsigned)d->pins.reset);
+				}
 			}
 			if (st == GS_USER_HTTP_TIME) {
+				prvLogModuleInfo();
 				prvLogIp();
 			}
 			if (prev == GS_USER_HTTP_TIME && st != GS_USER_ERROR) {
@@ -277,11 +279,14 @@ static void prvWifiTask(void *pvParameters)
 			if (st == GS_USER_ERROR) {
 				const char *line = gs_at_last_line();
 				const char *partial = gs_at_partial_line();
+				const char *accum = gs_at_info_accum();
 				const gs_wifi_init_diag_t *d = gs_wifi_last_init_diag();
 				WB_LOGE("last AT line: '%s'", line ? line : "");
 				WB_LOGE("AT rx_bytes=%u partial='%s'",
 					(unsigned)gs_at_rx_byte_count(),
 					(partial && partial[0]) ? partial : "");
+				WB_LOGE("AT info: '%s'",
+					(accum && accum[0]) ? accum : "");
 				if (d) {
 					WB_LOGE("init try baud=%u intf=%s pgm=%s hw_rst=%d saw_boot=%d rx=%u rst=%u pgm_pin=%u intf_pin=%u hiz=%u",
 						(unsigned)d->baud,

@@ -213,6 +213,7 @@ static void extract_ip_from_text(const char *text, char *ip, size_t ip_len)
 {
 	const char *keys[] = { "IP addr=", "IP Addr=", "IP=", "ip=", NULL };
 	const char *ip_src = NULL;
+	const char *p;
 	size_t k;
 
 	if (!ip || ip_len == 0U) {
@@ -227,6 +228,31 @@ static void extract_ip_from_text(const char *text, char *ip, size_t ip_len)
 		if (ip_src) {
 			ip_src += strlen(keys[k]);
 			break;
+		}
+	}
+	/* GainSpan WA dumps often use "IP" + spaces + "=". */
+	if (!ip_src) {
+		p = text;
+		while ((p = strstr(p, "IP")) != NULL) {
+			const char *q;
+			if (p > text && (isalnum((unsigned char)p[-1]) ||
+					 p[-1] == '_')) {
+				p++;
+				continue;
+			}
+			q = p + 2;
+			if (strncmp(q, " addr", 5) == 0 ||
+			    strncmp(q, " Addr", 5) == 0) {
+				q += 5;
+			}
+			while (*q == ' ' || *q == '\t') {
+				q++;
+			}
+			if (*q == '=') {
+				ip_src = q + 1;
+				break;
+			}
+			p++;
 		}
 	}
 	if (!ip_src) {
@@ -323,26 +349,25 @@ gs_msg_id_t gs_wifi_query_module_info(gs_wifi_module_info_t *out)
 	memset(&info, 0, sizeof(info));
 	copy_field(info.name, sizeof(info.name), "GS1500M");
 
-	id_ver = gs_at_send_cmd("AT+VER=?\r\n", GS_AT_DEFAULT_CMD_TIMEOUT_MS);
+	/* GS docs often use AT+VER=?? ; try both. */
+	id_ver = gs_at_send_cmd("AT+VER=??\r\n", 5000U);
 	blob = gs_at_info_accum();
 	if ((!blob || !blob[0]) && gs_at_last_info_line()[0]) {
 		blob = gs_at_last_info_line();
 	}
-	if (blob && blob[0]) {
-		parse_version_blob(&info, blob);
-	} else if (id_ver != GS_MSG_OK) {
-		/* Some firmwares want AT+VER=?? */
-		id_ver = gs_at_send_cmd("AT+VER=??\r\n", GS_AT_DEFAULT_CMD_TIMEOUT_MS);
+	if ((!blob || strlen(blob) < 3U) && id_ver != GS_MSG_OK) {
+		id_ver = gs_at_send_cmd("AT+VER=?\r\n", 5000U);
 		blob = gs_at_info_accum();
 		if ((!blob || !blob[0]) && gs_at_last_info_line()[0]) {
 			blob = gs_at_last_info_line();
 		}
-		if (blob && blob[0]) {
-			parse_version_blob(&info, blob);
-		}
+	}
+	/* Ignore tiny garbage blobs (e.g. a single noise character). */
+	if (blob && strlen(blob) >= 3U) {
+		parse_version_blob(&info, blob);
 	}
 
-	id_mac = gs_at_send_cmd("AT+NMAC=?\r\n", GS_AT_DEFAULT_CMD_TIMEOUT_MS);
+	id_mac = gs_at_send_cmd("AT+NMAC=?\r\n", 5000U);
 	blob = gs_at_info_accum();
 	if ((!blob || !blob[0]) && gs_at_last_info_line()[0]) {
 		blob = gs_at_last_info_line();
@@ -357,7 +382,7 @@ gs_msg_id_t gs_wifi_query_module_info(gs_wifi_module_info_t *out)
 	}
 
 	if (id_ver == GS_MSG_OK || id_mac == GS_MSG_OK || info.version[0] ||
-	    info.mac[0]) {
+	    info.app_ver[0] || info.mac[0]) {
 		return GS_MSG_OK;
 	}
 	return (id_ver != GS_MSG_NONE) ? id_ver : id_mac;
@@ -594,25 +619,89 @@ linked:
 		return id;
 	}
 
-	(void)gs_wifi_query_module_info(NULL);
+	/* Defer VER/NMAC until after join — keeps the association path clean. */
+	gs_at_flush();
 	return GS_MSG_OK;
+}
+
+static void harvest_ip_from_last_info(void)
+{
+	const char *blob = gs_at_info_accum();
+
+	if ((!blob || !blob[0]) && gs_at_last_info_line()[0]) {
+		blob = gs_at_last_info_line();
+	}
+	extract_ip_from_text(blob, s_last_status.ip, sizeof(s_last_status.ip));
+	if (!s_last_status.ip[0]) {
+		extract_ip_from_text(gs_at_partial_line(), s_last_status.ip,
+				     sizeof(s_last_status.ip));
+	}
+	if (s_last_status.ip[0]) {
+		s_last_status.associated = true;
+	}
+}
+
+static void drain_rx_ms(uint32_t ms)
+{
+	const gs_platform_t *p = gs_platform_get();
+	uint32_t start = now_ms();
+
+	if (!p || !p->uart_read) {
+		return;
+	}
+	while ((now_ms() - start) < ms) {
+		uint8_t b;
+		int n = p->uart_read(&b, 1, 20U, p->ctx);
+		if (n > 0) {
+			(void)gs_at_process_byte(b);
+		} else {
+			delay_ms(1);
+		}
+	}
 }
 
 gs_msg_id_t gs_wifi_join(const char *ssid, const char *bssid_or_null,
 			 const char *channel_or_null)
 {
+	gs_msg_id_t id;
+
 	if (!ssid) {
 		return GS_MSG_INVALID_INPUT;
 	}
+	/* Association dump can be slow; 45s matches busy DHCP APs. */
 	if (bssid_or_null && channel_or_null) {
-		return gs_at_send_cmdf(30000U, "AT+WA=%s,%s,%s\r\n", ssid,
-				       bssid_or_null, channel_or_null);
+		id = gs_at_send_cmdf(45000U, "AT+WA=%s,%s,%s\r\n", ssid,
+				     bssid_or_null, channel_or_null);
+	} else if (channel_or_null) {
+		id = gs_at_send_cmdf(45000U, "AT+WA=%s,,%s\r\n", ssid,
+				     channel_or_null);
+	} else {
+		id = gs_at_send_cmdf(45000U, "AT+WA=%s\r\n", ssid);
 	}
-	if (channel_or_null) {
-		return gs_at_send_cmdf(30000U, "AT+WA=%s,,%s\r\n", ssid,
-				       channel_or_null);
+
+	if (id == GS_MSG_TIMEOUT) {
+		/* Finish a mid-line IP dump if the final OK was late. */
+		drain_rx_ms(1000U);
 	}
-	return gs_at_send_cmdf(30000U, "AT+WA=%s\r\n", ssid);
+
+	/* AT+WA prints IP addr=… before OK — capture even on timeout. */
+	harvest_ip_from_last_info();
+	if (id == GS_MSG_TIMEOUT && s_last_status.ip[0]) {
+		return GS_MSG_OK;
+	}
+	if (id == GS_MSG_TIMEOUT) {
+		/* Also accept association keywords without a parsed IP yet. */
+		const char *blob = gs_at_info_accum();
+		if (blob && (strstr(blob, "ASSOCIATED") || strstr(blob, "SSID") ||
+			     strstr(blob, "IP"))) {
+			s_last_status.associated = true;
+			return GS_MSG_OK;
+		}
+	}
+	if (id == GS_MSG_OK) {
+		s_last_status.associated = true;
+	}
+	return id;
 }
 
 gs_msg_id_t gs_wifi_disconnect(void)

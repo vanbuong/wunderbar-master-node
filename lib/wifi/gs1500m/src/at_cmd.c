@@ -94,6 +94,11 @@ gs_msg_id_t gs_at_send_cmd(const char *cmd, uint32_t timeout_ms)
 	if (!cmd) {
 		return GS_MSG_ERROR;
 	}
+	/*
+	 * Drop stale RX (previous timeout leftovers, unsolicited banners) so the
+	 * next OK/ERROR cannot be paired with an old partial line.
+	 */
+	gs_at_flush();
 	len = strlen(cmd);
 	if (gs_at_write((const uint8_t *)cmd, len) < 0) {
 		return GS_MSG_ERROR;

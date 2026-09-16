@@ -44,7 +44,7 @@ typedef struct {
 /**
  * Bring-up sequence (multi-strategy):
  * Try INTF_SEL float/1/0 × baud 115200/9600 with HW reset + AT probe, then
- * ATE0 → AT+BDATA=1 → radio on → query module info (VER / MAC).
+ * ATE0 → AT+BDATA=1 → radio on. Module VER/MAC are queried after join.
  * If the link opens at 9600, host switches to 115200 via ATB=115200.
  */
 gs_msg_id_t gs_wifi_init(uint32_t ready_timeout_ms);

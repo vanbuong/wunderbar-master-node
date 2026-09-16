@@ -45,17 +45,22 @@ void test_wifi_init_pulses_reset_and_sends_bringup_cmds(void)
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "ATE0\r\n"));
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+BDATA=1\r\n"));
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+WRXACTIVE=1\r\n"));
-	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+VER=?\r\n"));
+	/* VER/NMAC are queried after join, not during init. */
+	TEST_ASSERT_FALSE(gs_stub_tx_contains(&s_stub, "AT+VER="));
+}
+
+void test_wifi_query_module_info_parses_ver_mac(void)
+{
+	gs_wifi_module_info_t mi;
+
+	TEST_ASSERT_EQUAL_INT(GS_MSG_OK, gs_wifi_query_module_info(&mi));
+	TEST_ASSERT_EQUAL_STRING("Serial2WiFi", mi.name);
+	TEST_ASSERT_EQUAL_STRING("2.5.1", mi.app_ver);
+	TEST_ASSERT_EQUAL_STRING("2.5.1", mi.geps_ver);
+	TEST_ASSERT_EQUAL_STRING("2.5.0", mi.wlan_ver);
+	TEST_ASSERT_EQUAL_STRING("00:1d:c9:12:34:56", mi.mac);
+	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+VER="));
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+NMAC=?\r\n"));
-	{
-		const gs_wifi_module_info_t *mi = gs_wifi_last_module_info();
-		TEST_ASSERT_NOT_NULL(mi);
-		TEST_ASSERT_EQUAL_STRING("Serial2WiFi", mi->name);
-		TEST_ASSERT_EQUAL_STRING("2.5.1", mi->app_ver);
-		TEST_ASSERT_EQUAL_STRING("2.5.1", mi->geps_ver);
-		TEST_ASSERT_EQUAL_STRING("2.5.0", mi->wlan_ver);
-		TEST_ASSERT_EQUAL_STRING("00:1d:c9:12:34:56", mi->mac);
-	}
 }
 
 void test_wifi_join_wpa_command_sequence(void)
@@ -253,8 +258,15 @@ void test_user_sm_queries_ip_and_ntp(void)
 	TEST_ASSERT_EQUAL_INT(GS_USER_READY, st);
 	TEST_ASSERT_EQUAL_STRING("192.168.1.50", gs_wifi_last_ip());
 	TEST_ASSERT_TRUE(gs_wifi_last_unix_time() != 0U);
-	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+NSTAT=?\r\n"));
+	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+VER="));
+	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+NMAC=?\r\n"));
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+GETTIME=?\r\n"));
+	{
+		const gs_wifi_module_info_t *mi = gs_wifi_last_module_info();
+		TEST_ASSERT_NOT_NULL(mi);
+		TEST_ASSERT_EQUAL_STRING("Serial2WiFi", mi->name);
+		TEST_ASSERT_EQUAL_STRING("2.5.1", mi->app_ver);
+	}
 }
 
 void test_user_sm_lap_fallback_on_join_error(void)
@@ -293,6 +305,7 @@ int main(void)
 {
 	UNITY_BEGIN();
 	RUN_TEST(test_wifi_init_pulses_reset_and_sends_bringup_cmds);
+	RUN_TEST(test_wifi_query_module_info_parses_ver_mac);
 	RUN_TEST(test_wifi_join_wpa_command_sequence);
 	RUN_TEST(test_wifi_join_with_channel);
 	RUN_TEST(test_wifi_disconnect_and_echo);

@@ -158,48 +158,52 @@ static bool token_at_start(const char *line, const char *tok)
 
 gs_msg_id_t gs_at_classify_line(const char *line)
 {
-	if (!line) {
+	const char *s = line;
+
+	if (!s) {
 		return GS_MSG_NONE;
 	}
-	if (strstr(line, "ERROR: INVALID INPUT")) {
+	while (*s == ' ' || *s == '\t') {
+		s++;
+	}
+
+	if (strstr(s, "ERROR: INVALID INPUT")) {
 		return GS_MSG_INVALID_INPUT;
 	}
-	if (strstr(line, "ERROR: IP CONFIG FAIL")) {
+	if (strstr(s, "ERROR: IP CONFIG FAIL")) {
 		return GS_MSG_ERROR_IP_CONFIG;
 	}
-	if (strstr(line, "ERROR: SOCKET FAILURE")) {
+	if (strstr(s, "ERROR: SOCKET FAILURE")) {
 		return GS_MSG_ERROR_SOCKET;
 	}
-	if (strstr(line, "ERROR")) {
+	/* Require ERROR at start so status lines cannot false-trigger. */
+	if (token_at_start(s, "ERROR")) {
 		return GS_MSG_ERROR;
 	}
-	/* Exact "OK" only — avoid matching version/info lines that contain "OK". */
-	if (token_at_start(line, "OK")) {
+	/* Exact "OK" after leading whitespace (GainSpan pads some dumps). */
+	if (token_at_start(s, "OK")) {
 		return GS_MSG_OK;
 	}
-	if (strstr(line, "DISASSOCIATED") || strstr(line, "Disassociation Event")) {
+	if (strstr(s, "DISASSOCIATED") || strstr(s, "Disassociation Event")) {
 		return GS_MSG_DISASSOCIATED;
 	}
-	if (strstr(line, "DISCONNECT")) {
+	if (token_at_start(s, "DISCONNECT") || strstr(s, "DISCONNECT")) {
 		return GS_MSG_DISCONNECT;
 	}
-	if (strstr(line, "APP Reset") || strstr(line, "UnExpected Warm Boot")) {
+	if (strstr(s, "APP Reset") || strstr(s, "UnExpected Warm Boot")) {
 		return GS_MSG_APP_RESET;
 	}
-	if (strstr(line, "Serial2WiFi APP")) {
+	if (strstr(s, "Serial2WiFi APP")) {
 		return GS_MSG_WELCOME;
 	}
-	if (strstr(line, "External Flash FW-UP-SUCCESS")) {
+	if (strstr(s, "External Flash FW-UP-SUCCESS")) {
 		return GS_MSG_FW_UPDATE_OK;
 	}
-	if (strstr(line, "CONNECT ")) {
+	if (token_at_start(s, "CONNECT")) {
 		/* Server accept lines are long: CONNECT <srv> <cli> <ip> <port> */
-		if (strlen(strstr(line, "CONNECT ")) > 20U) {
+		if (strlen(s) > 20U) {
 			return GS_MSG_CONNECT_SERVER_CLIENT;
 		}
-		return GS_MSG_CONNECT;
-	}
-	if (strncmp(line, "CONNECT", 7) == 0) {
 		return GS_MSG_CONNECT;
 	}
 	return GS_MSG_NONE;

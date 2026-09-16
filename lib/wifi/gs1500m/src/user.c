@@ -59,7 +59,10 @@ gs_user_state_t gs_user_poll(gs_user_t *u)
 		id = gs_wifi_join_wpa(u->cfg.ssid, u->cfg.psk);
 		u->last_msg = id;
 		if (id == GS_MSG_OK) {
-			(void)gs_wifi_get_status(NULL);
+			(void)gs_wifi_query_module_info(NULL);
+			if (!gs_wifi_last_ip()[0]) {
+				(void)gs_wifi_get_status(NULL);
+			}
 			u->state = GS_USER_HTTP_TIME;
 		} else if (u->cfg.use_limited_ap_on_fail) {
 			u->state = GS_USER_LIMITED_AP;
