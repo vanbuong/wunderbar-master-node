@@ -73,6 +73,26 @@ static const char *state_name(gs_user_state_t st)
 	}
 }
 
+static void log_module_info(void)
+{
+	const gs_wifi_module_info_t *mi = gs_wifi_last_module_info();
+
+	if (!mi) {
+		return;
+	}
+	WB_LOGI("wifi module: name=%s mac=%s",
+		mi->name[0] ? mi->name : "(unknown)",
+		mi->mac[0] ? mi->mac : "(unknown)");
+	if (mi->app_ver[0] || mi->geps_ver[0] || mi->wlan_ver[0]) {
+		WB_LOGI("wifi fw: app=%s geps=%s wlan=%s",
+			mi->app_ver[0] ? mi->app_ver : "?",
+			mi->geps_ver[0] ? mi->geps_ver : "?",
+			mi->wlan_ver[0] ? mi->wlan_ver : "?");
+	} else if (mi->version[0]) {
+		WB_LOGI("wifi fw: %s", mi->version);
+	}
+}
+
 int main(void)
 {
 	gs_user_config_t cfg;
@@ -127,6 +147,9 @@ int main(void)
 		if (st != prev) {
 			WB_LOGI("wifi SM: %s (msg=%d)", state_name(st),
 				(int)s_user.last_msg);
+			if (prev == GS_USER_INIT && st != GS_USER_ERROR) {
+				log_module_info();
+			}
 			if (st == GS_USER_ERROR) {
 				WB_LOGE("last AT line: '%s'", gs_at_last_line());
 				WB_LOGE("AT rx_bytes=%u partial='%s'",

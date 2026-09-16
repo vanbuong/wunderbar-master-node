@@ -10,6 +10,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
+
+static gs_wifi_module_info_t s_module_info;
 
 static void delay_ms(uint32_t ms)
 {
@@ -23,6 +26,135 @@ static uint32_t now_ms(void)
 {
 	const gs_platform_t *p = gs_platform_get();
 	return (p && p->millis) ? p->millis(p->ctx) : 0U;
+}
+
+static void copy_field(char *dst, size_t dst_len, const char *src)
+{
+	if (!dst || dst_len == 0U) {
+		return;
+	}
+	if (!src) {
+		dst[0] = '\0';
+		return;
+	}
+	strncpy(dst, src, dst_len - 1U);
+	dst[dst_len - 1U] = '\0';
+}
+
+static const char *find_keyed_value(const char *text, const char *key)
+{
+	const char *p;
+	if (!text || !key) {
+		return NULL;
+	}
+	p = strstr(text, key);
+	if (!p) {
+		return NULL;
+	}
+	p += strlen(key);
+	while (*p == ' ' || *p == '\t' || *p == '=') {
+		p++;
+	}
+	return (*p != '\0') ? p : NULL;
+}
+
+static void copy_token(char *dst, size_t dst_len, const char *src)
+{
+	size_t i = 0;
+	if (!dst || dst_len == 0U) {
+		return;
+	}
+	if (!src) {
+		dst[0] = '\0';
+		return;
+	}
+	while (src[i] && src[i] != '\r' && src[i] != '\n' && src[i] != ' ' &&
+	       i + 1U < dst_len) {
+		dst[i] = src[i];
+		i++;
+	}
+	dst[i] = '\0';
+}
+
+static bool looks_like_mac(const char *s)
+{
+	size_t n;
+	size_t i;
+	if (!s) {
+		return false;
+	}
+	n = strlen(s);
+	if (n < 17U) {
+		return false;
+	}
+	for (i = 0; i < 17U; i++) {
+		if ((i % 3U) == 2U) {
+			if (s[i] != ':' && s[i] != '-') {
+				return false;
+			}
+		} else if (!isxdigit((unsigned char)s[i])) {
+			return false;
+		}
+	}
+	return true;
+}
+
+static void parse_version_blob(gs_wifi_module_info_t *info, const char *blob)
+{
+	const char *v;
+
+	if (!info) {
+		return;
+	}
+	copy_field(info->version, sizeof(info->version), blob);
+	v = find_keyed_value(blob, "S2W APP VERSION");
+	if (!v) {
+		v = find_keyed_value(blob, "APP VERSION");
+	}
+	if (v) {
+		copy_token(info->app_ver, sizeof(info->app_ver), v);
+	}
+	v = find_keyed_value(blob, "S2W GEPS VERSION");
+	if (!v) {
+		v = find_keyed_value(blob, "GEPS VERSION");
+	}
+	if (v) {
+		copy_token(info->geps_ver, sizeof(info->geps_ver), v);
+	}
+	v = find_keyed_value(blob, "S2W WLAN VERSION");
+	if (!v) {
+		v = find_keyed_value(blob, "WLAN VERSION");
+	}
+	if (v) {
+		copy_token(info->wlan_ver, sizeof(info->wlan_ver), v);
+	}
+
+	if (strstr(blob, "Serial2WiFi") || strstr(blob, "S2W")) {
+		copy_field(info->name, sizeof(info->name), "Serial2WiFi");
+	} else if (!info->name[0]) {
+		copy_field(info->name, sizeof(info->name), "GS1500M");
+	}
+}
+
+static void parse_mac_blob(gs_wifi_module_info_t *info, const char *blob)
+{
+	const char *p;
+	char tmp[32];
+
+	if (!info || !blob) {
+		return;
+	}
+	p = find_keyed_value(blob, "MAC");
+	if (!p) {
+		p = blob;
+		while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') {
+			p++;
+		}
+	}
+	copy_token(tmp, sizeof(tmp), p);
+	if (looks_like_mac(tmp)) {
+		copy_field(info->mac, sizeof(info->mac), tmp);
+	}
 }
 
 gs_msg_id_t gs_wifi_echo(bool on)
@@ -87,10 +219,61 @@ gs_msg_id_t gs_wifi_version(char *out, size_t out_len)
 {
 	gs_msg_id_t id = gs_at_send_cmd("AT+VER=?\r\n", GS_AT_DEFAULT_CMD_TIMEOUT_MS);
 	if (out && out_len > 0U) {
-		strncpy(out, gs_at_last_line(), out_len - 1U);
+		const char *blob = gs_at_info_accum();
+		if (!blob || !blob[0]) {
+			blob = gs_at_last_info_line();
+		}
+		if (!blob || !blob[0]) {
+			blob = gs_at_last_line();
+		}
+		strncpy(out, blob, out_len - 1U);
 		out[out_len - 1U] = '\0';
 	}
 	return id;
+}
+
+gs_msg_id_t gs_wifi_query_module_info(gs_wifi_module_info_t *out)
+{
+	gs_wifi_module_info_t info;
+	gs_msg_id_t id_ver;
+	gs_msg_id_t id_mac;
+	const char *blob;
+
+	memset(&info, 0, sizeof(info));
+	copy_field(info.name, sizeof(info.name), "GS1500M");
+
+	id_ver = gs_at_send_cmd("AT+VER=?\r\n", GS_AT_DEFAULT_CMD_TIMEOUT_MS);
+	blob = gs_at_info_accum();
+	if ((!blob || !blob[0]) && gs_at_last_info_line()[0]) {
+		blob = gs_at_last_info_line();
+	}
+	if (id_ver == GS_MSG_OK && blob && blob[0]) {
+		parse_version_blob(&info, blob);
+	}
+
+	id_mac = gs_at_send_cmd("AT+NMAC=?\r\n", GS_AT_DEFAULT_CMD_TIMEOUT_MS);
+	blob = gs_at_info_accum();
+	if ((!blob || !blob[0]) && gs_at_last_info_line()[0]) {
+		blob = gs_at_last_info_line();
+	}
+	if (id_mac == GS_MSG_OK && blob && blob[0]) {
+		parse_mac_blob(&info, blob);
+	}
+
+	s_module_info = info;
+	if (out) {
+		*out = info;
+	}
+
+	if (id_ver == GS_MSG_OK || id_mac == GS_MSG_OK) {
+		return GS_MSG_OK;
+	}
+	return (id_ver != GS_MSG_NONE) ? id_ver : id_mac;
+}
+
+const gs_wifi_module_info_t *gs_wifi_last_module_info(void)
+{
+	return &s_module_info;
 }
 
 gs_msg_id_t gs_wifi_init(uint32_t ready_timeout_ms)
@@ -176,7 +359,13 @@ gs_msg_id_t gs_wifi_init(uint32_t ready_timeout_ms)
 	}
 
 	id = gs_wifi_radio(true);
-	return id;
+	if (id != GS_MSG_OK) {
+		return id;
+	}
+
+	/* Best-effort identity dump; bring-up still succeeds if VER/MAC fail. */
+	(void)gs_wifi_query_module_info(NULL);
+	return GS_MSG_OK;
 }
 
 gs_msg_id_t gs_wifi_join(const char *ssid, const char *bssid_or_null,

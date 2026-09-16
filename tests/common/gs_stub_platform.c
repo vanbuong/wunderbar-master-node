@@ -36,6 +36,18 @@ static void stub_queue_response_for_cmd(gs_stub_ctx_t *ctx, const char *cmd)
 		gs_stub_rx_push_str(ctx, "Serial2WiFi APP\r\nOK\r\n");
 		return;
 	}
+	if (strncmp(cmd, "AT+VER=?", 8) == 0) {
+		gs_stub_rx_push_str(ctx,
+				     "S2W APP VERSION=2.5.1\r\n"
+				     "S2W GEPS VERSION=2.5.1\r\n"
+				     "S2W WLAN VERSION=2.5.0\r\n"
+				     "OK\r\n");
+		return;
+	}
+	if (strncmp(cmd, "AT+NMAC=?", 9) == 0) {
+		gs_stub_rx_push_str(ctx, "00:1d:c9:12:34:56\r\nOK\r\n");
+		return;
+	}
 	if (strncmp(cmd, "AT+NSTAT=?", 10) == 0) {
 		gs_stub_rx_push_str(ctx, "IP=192.168.1.50\r\nOK\r\n");
 		return;

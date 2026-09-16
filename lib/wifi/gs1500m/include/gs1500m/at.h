@@ -101,6 +101,16 @@ const char *gs_at_last_line(void);
 const char *gs_at_last_info_line(void);
 
 /**
+ * All informational lines from the last command (joined with '\\n'), up to
+ * the terminating OK/ERROR. Cleared at the start of each send/wait and on
+ * flush/init. Useful for multi-line AT+VER=? responses.
+ */
+const char *gs_at_info_accum(void);
+
+/** Clear the multi-line info accumulator (also done by send/wait/flush). */
+void gs_at_clear_info_accum(void);
+
+/**
  * Bytes currently buffered in an incomplete line (no CR/LF yet).
  * Useful when diagnosing TIMEOUT with empty last_line.
  */

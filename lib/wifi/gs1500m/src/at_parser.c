@@ -33,6 +33,7 @@ static char s_line[GS_AT_RX_LINE_MAX];
 static size_t s_line_len;
 static char s_last_line[GS_AT_RX_LINE_MAX];
 static char s_last_info_line[GS_AT_RX_LINE_MAX];
+static char s_info_accum[GS_AT_RX_LINE_MAX];
 static uint32_t s_rx_bytes;
 static uint8_t s_cid;
 static gs_esc_kind_t s_esc_kind;
@@ -76,6 +77,37 @@ static void reset_to_start(void)
 	s_esc_kind = GS_ESC_KIND_NONE;
 }
 
+static void clear_info_accum(void)
+{
+	s_info_accum[0] = '\0';
+}
+
+static void append_info_accum(const char *line)
+{
+	size_t cur;
+	size_t add;
+	size_t room;
+
+	if (!line || !line[0]) {
+		return;
+	}
+	cur = strlen(s_info_accum);
+	add = strlen(line);
+	room = sizeof(s_info_accum) - 1U;
+	if (cur > 0U && cur < room) {
+		s_info_accum[cur++] = '\n';
+		s_info_accum[cur] = '\0';
+	}
+	if (cur >= room) {
+		return;
+	}
+	if (add > room - cur) {
+		add = room - cur;
+	}
+	memcpy(s_info_accum + cur, line, add);
+	s_info_accum[cur + add] = '\0';
+}
+
 void gs_at_init(const gs_at_callbacks_t *cbs)
 {
 	memset(&s_cbs, 0, sizeof(s_cbs));
@@ -85,6 +117,7 @@ void gs_at_init(const gs_at_callbacks_t *cbs)
 	memset(s_line, 0, sizeof(s_line));
 	memset(s_last_line, 0, sizeof(s_last_line));
 	memset(s_last_info_line, 0, sizeof(s_last_info_line));
+	clear_info_accum();
 	s_rx_bytes = 0U;
 	reset_to_start();
 }
@@ -168,6 +201,7 @@ static gs_msg_id_t finish_line(void)
 				s_last_info_line[--n] = '\0';
 			}
 		}
+		append_info_accum(s_last_info_line);
 	}
 	if (s_cbs.on_line && (id != GS_MSG_NONE || s_line_len > 0U)) {
 		s_cbs.on_line(id, s_line, s_cbs.user);
@@ -425,6 +459,16 @@ const char *gs_at_last_info_line(void)
 	return s_last_info_line;
 }
 
+const char *gs_at_info_accum(void)
+{
+	return s_info_accum;
+}
+
+void gs_at_clear_info_accum(void)
+{
+	clear_info_accum();
+}
+
 const char *gs_at_partial_line(void)
 {
 	s_line[s_line_len < sizeof(s_line) ? s_line_len : (sizeof(s_line) - 1U)] =
@@ -463,5 +507,6 @@ void gs_at_flush(void)
 	s_line_len = 0U;
 	s_last_line[0] = '\0';
 	s_last_info_line[0] = '\0';
+	clear_info_accum();
 	s_rx_bytes = 0U;
 }

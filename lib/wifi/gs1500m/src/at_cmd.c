@@ -48,6 +48,8 @@ gs_msg_id_t gs_at_wait_response(uint32_t timeout_ms)
 		return GS_MSG_ERROR;
 	}
 
+	gs_at_clear_info_accum();
+
 	for (;;) {
 		int n = p->uart_read(&b, 1, 10U, p->ctx);
 		if (n > 0) {
