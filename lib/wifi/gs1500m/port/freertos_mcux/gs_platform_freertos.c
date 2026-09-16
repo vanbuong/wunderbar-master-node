@@ -20,13 +20,13 @@
 #ifndef GS_UART
 #define GS_UART UART0
 #endif
-/* MK64/K24: UART0_CLK_SRC is the core/system clock (see fsl_clock.h), not bus. */
-#ifndef GS_UART_CLK_FREQ
-#define GS_UART_CLK_FREQ (CLOCK_GetFreq(UART0_CLK_SRC))
-#endif
+
+static uint32_t s_uart_baud = GS_UART_BAUD_DEFAULT;
+static bool s_intf_hiz;
 
 static uint32_t gs_uart_src_hz(void)
 {
+	/* MK64/K24: UART0_CLK_SRC is the core/system clock, not bus. */
 	return CLOCK_GetFreq(UART0_CLK_SRC);
 }
 
@@ -35,16 +35,6 @@ static int freertos_uart_write(const uint8_t *data, size_t len, void *ctx)
 	(void)ctx;
 	UART_WriteBlocking(GS_UART, data, len);
 	return (int)len;
-}
-
-static void freertos_uart_clear_errors(void)
-{
-	uint32_t flags = UART_GetStatusFlags(GS_UART);
-	uint32_t err = flags & (kUART_RxOverrunFlag | kUART_NoiseErrorFlag |
-				kUART_FramingErrorFlag | kUART_ParityErrorFlag);
-	if (err != 0U) {
-		(void)UART_ClearStatusFlags(GS_UART, err);
-	}
 }
 
 static int freertos_uart_read(uint8_t *data, size_t max_len, uint32_t block_ms,
@@ -59,11 +49,20 @@ static int freertos_uart_read(uint8_t *data, size_t max_len, uint32_t block_ms,
 		return 0;
 	}
 
+	/*
+	 * Do NOT clear framing/noise errors before reading RDRF. Wrong baud
+	 * sets FE on every byte; clearing FE via UART_ClearStatusFlags reads
+	 * and discards D — which made rx_bytes look like 0 forever.
+	 */
 	while (n < max_len) {
-		freertos_uart_clear_errors();
-		if (UART_GetStatusFlags(GS_UART) & kUART_RxDataRegFullFlag) {
+		uint32_t flags = UART_GetStatusFlags(GS_UART);
+
+		if ((flags & kUART_RxDataRegFullFlag) != 0U) {
 			data[n++] = UART_ReadByte(GS_UART);
 			continue;
+		}
+		if ((flags & kUART_RxOverrunFlag) != 0U) {
+			(void)UART_ClearStatusFlags(GS_UART, kUART_RxOverrunFlag);
 		}
 		if (block_ms == 0U) {
 			break;
@@ -78,11 +77,28 @@ static int freertos_uart_read(uint8_t *data, size_t max_len, uint32_t block_ms,
 
 static void freertos_uart_flush(void *ctx)
 {
+	uint32_t flags;
 	(void)ctx;
-	freertos_uart_clear_errors();
-	while (UART_GetStatusFlags(GS_UART) & kUART_RxDataRegFullFlag) {
+	flags = UART_GetStatusFlags(GS_UART);
+	if ((flags & kUART_RxOverrunFlag) != 0U) {
+		(void)UART_ClearStatusFlags(GS_UART, kUART_RxOverrunFlag);
+	}
+	while ((UART_GetStatusFlags(GS_UART) & kUART_RxDataRegFullFlag) != 0U) {
 		(void)UART_ReadByte(GS_UART);
 	}
+}
+
+static int freertos_uart_set_baud(uint32_t baud, void *ctx)
+{
+	(void)ctx;
+	if (baud == 0U) {
+		return -1;
+	}
+	if (UART_SetBaudRate(GS_UART, baud, gs_uart_src_hz()) != kStatus_Success) {
+		return -1;
+	}
+	s_uart_baud = baud;
+	return 0;
 }
 
 static uint32_t freertos_millis(void *ctx)
@@ -100,21 +116,52 @@ static void freertos_delay_ms(uint32_t ms, void *ctx)
 static void freertos_reset_set(bool assert_reset, void *ctx)
 {
 	(void)ctx;
+	/* Push-pull active-low: OD+weak pull left some boards stuck in reset. */
 	GPIO_PinWrite(GPIOD, GS_PIN_RESET_NUM, assert_reset ? 0U : 1U);
+}
+
+static void freertos_intf_sel_set(int level, void *ctx)
+{
+	gpio_pin_config_t cfg;
+	(void)ctx;
+
+	if (level < 0) {
+		/* Legacy PE left INTF_SEL alone (board pull selects mode). */
+		cfg.pinDirection = kGPIO_DigitalInput;
+		cfg.outputLogic = 0U;
+		GPIO_PinInit(GPIOA, GS_PIN_INTF_SEL_NUM, &cfg);
+		s_intf_hiz = true;
+		return;
+	}
+
+	cfg.pinDirection = kGPIO_DigitalOutput;
+	cfg.outputLogic = (level != 0) ? 1U : 0U;
+	GPIO_PinInit(GPIOA, GS_PIN_INTF_SEL_NUM, &cfg);
+	s_intf_hiz = false;
 }
 
 static void freertos_intf_sel_uart(void *ctx)
 {
-	(void)ctx;
-	GPIO_PinWrite(GPIOA, GS_PIN_INTF_SEL_NUM, GS_INTF_SEL_UART_LEVEL);
+	freertos_intf_sel_set((int)GS_INTF_SEL_UART_LEVEL, ctx);
 }
 
 static void freertos_pgm_set(bool assert_pgm, void *ctx)
 {
 	(void)ctx;
-	/* assert_pgm true → drive opposite of idle */
 	uint8_t level = assert_pgm ? (uint8_t)!GS_PGM_IDLE_LEVEL : GS_PGM_IDLE_LEVEL;
 	GPIO_PinWrite(GPIOE, GS_PIN_PGM_NUM, level);
+}
+
+static void freertos_ctrl_pins_get(gs_ctrl_pins_t *out, void *ctx)
+{
+	(void)ctx;
+	if (!out) {
+		return;
+	}
+	out->reset = (uint8_t)GPIO_PinRead(GPIOD, GS_PIN_RESET_NUM);
+	out->pgm = (uint8_t)GPIO_PinRead(GPIOE, GS_PIN_PGM_NUM);
+	out->intf_sel = (uint8_t)GPIO_PinRead(GPIOA, GS_PIN_INTF_SEL_NUM);
+	out->intf_hiz = s_intf_hiz ? 1U : 0U;
 }
 
 int gs_platform_freertos_init(gs_platform_t *out)
@@ -159,18 +206,18 @@ int gs_platform_freertos_init(gs_platform_t *out)
 		PORT_SetPinConfig(PORTD, GS_PIN_UART_TX_NUM, &uart_tx);
 	}
 
-	/* RESET open-drain + internal pull-up (active-low; release → high). */
+	/* RESET push-pull active-low (reliably release high). */
 	{
-		const port_pin_config_t od = {
+		const port_pin_config_t rst = {
 			.pullSelect = kPORT_PullUp,
 			.slewRate = kPORT_FastSlewRate,
 			.passiveFilterEnable = kPORT_PassiveFilterDisable,
-			.openDrainEnable = kPORT_OpenDrainEnable,
+			.openDrainEnable = kPORT_OpenDrainDisable,
 			.driveStrength = kPORT_LowDriveStrength,
 			.mux = kPORT_MuxAsGpio,
 			.lockRegister = kPORT_UnlockRegister,
 		};
-		PORT_SetPinConfig(PORTD, GS_PIN_RESET_NUM, &od);
+		PORT_SetPinConfig(PORTD, GS_PIN_RESET_NUM, &rst);
 	}
 	PORT_SetPinMux(PORTE, GS_PIN_PGM_NUM, kPORT_MuxAsGpio);
 	PORT_SetPinMux(PORTA, GS_PIN_INTF_SEL_NUM, kPORT_MuxAsGpio);
@@ -178,13 +225,13 @@ int gs_platform_freertos_init(gs_platform_t *out)
 	PORT_SetPinMux(PORTD, GS_PIN_ALARM1_NUM, kPORT_MuxAsGpio);
 	PORT_SetPinMux(PORTD, GS_PIN_SPI_IRQ_NUM, kPORT_MuxAsGpio);
 
-	out_cfg.outputLogic = 1U; /* release reset (OD high-Z + pull-up) */
+	out_cfg.outputLogic = 1U; /* release reset */
 	GPIO_PinInit(GPIOD, GS_PIN_RESET_NUM, &out_cfg);
 	out_cfg.outputLogic = GS_PGM_IDLE_LEVEL;
 	GPIO_PinInit(GPIOE, GS_PIN_PGM_NUM, &out_cfg);
-	/* UART mode = high (GS_INTF_SEL_UART_LEVEL); must be before reset. */
-	out_cfg.outputLogic = GS_INTF_SEL_UART_LEVEL;
-	GPIO_PinInit(GPIOA, GS_PIN_INTF_SEL_NUM, &out_cfg);
+
+	/* Start like legacy PE: leave INTF_SEL as input (board pull). */
+	freertos_intf_sel_set(-1, NULL);
 
 	GPIO_PinInit(GPIOB, GS_PIN_RTC_OUT_NUM, &in_cfg);
 	GPIO_PinInit(GPIOD, GS_PIN_ALARM1_NUM, &in_cfg);
@@ -197,19 +244,21 @@ int gs_platform_freertos_init(gs_platform_t *out)
 	if (UART_Init(GS_UART, &uart_config, gs_uart_src_hz()) != kStatus_Success) {
 		return -1;
 	}
-	freertos_uart_clear_errors();
-
+	s_uart_baud = GS_UART_BAUD_DEFAULT;
 
 	if (out) {
 		memset(out, 0, sizeof(*out));
 		out->uart_write = freertos_uart_write;
 		out->uart_read = freertos_uart_read;
 		out->uart_flush = freertos_uart_flush;
+		out->uart_set_baud = freertos_uart_set_baud;
 		out->millis = freertos_millis;
 		out->delay_ms = freertos_delay_ms;
 		out->reset_set = freertos_reset_set;
 		out->intf_sel_uart = freertos_intf_sel_uart;
+		out->intf_sel_set = freertos_intf_sel_set;
 		out->pgm_set = freertos_pgm_set;
+		out->ctrl_pins_get = freertos_ctrl_pins_get;
 		out->ctx = NULL;
 		gs_platform_set(out);
 	}

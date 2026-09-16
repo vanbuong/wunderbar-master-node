@@ -174,6 +174,34 @@ static void stub_pgm_set(bool assert_pgm, void *vctx)
 	}
 }
 
+static void stub_intf_sel_set(int level, void *vctx)
+{
+	gs_stub_ctx_t *ctx = (gs_stub_ctx_t *)vctx;
+	if (ctx) {
+		ctx->last_intf_uart = (level < 0) || (level == 1);
+	}
+}
+
+static int stub_uart_set_baud(uint32_t baud, void *vctx)
+{
+	(void)baud;
+	(void)vctx;
+	return 0;
+}
+
+static void stub_ctrl_pins_get(gs_ctrl_pins_t *out, void *vctx)
+{
+	(void)vctx;
+	if (!out) {
+		return;
+	}
+	memset(out, 0, sizeof(*out));
+	out->reset = 1U;
+	out->pgm = 1U;
+	out->intf_sel = 1U;
+	out->intf_hiz = 1U;
+}
+
 void gs_stub_reset(gs_stub_ctx_t *ctx)
 {
 	if (!ctx) {
@@ -193,11 +221,14 @@ void gs_stub_install(gs_stub_ctx_t *ctx, gs_platform_t *out)
 	out->uart_write = stub_uart_write;
 	out->uart_read = stub_uart_read;
 	out->uart_flush = stub_uart_flush;
+	out->uart_set_baud = stub_uart_set_baud;
 	out->millis = stub_millis;
 	out->delay_ms = stub_delay_ms;
 	out->reset_set = stub_reset_set;
 	out->intf_sel_uart = stub_intf_sel_uart;
+	out->intf_sel_set = stub_intf_sel_set;
 	out->pgm_set = stub_pgm_set;
+	out->ctrl_pins_get = stub_ctrl_pins_get;
 	out->ctx = ctx;
 	gs_platform_set(out);
 }

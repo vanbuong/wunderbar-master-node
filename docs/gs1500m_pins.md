@@ -16,4 +16,7 @@ UART AT path (primary — matches legacy `WunderBar_WiFi` firmware). SPI pins ar
 
 **Framing:** UART0, **115200 8N1**, no hardware flow control.
 
-**INTF_SEL polarity:** default UART level is **`1`** (`GS_INTF_SEL_UART_LEVEL`) — GainSpan selects UART when high / SPI when low. Legacy firmware left the pin alone (board pull-up). Override to `0` via compile define / DTS only if a PCB revision needs the opposite sense.
+**INTF_SEL polarity:** bring-up tries **float (legacy)**, then **1**, then **0**. GainSpan UART is typically high / SPI low; Serial2WiFi firmware may ignore the pin. Override `GS_INTF_SEL_UART_LEVEL` only if you need a fixed drive level outside auto-try.
+
+**Baud:** factory default is often **9600**. Init tries 115200, then 9600, then 57600. Framing-error bytes are kept (not discarded) so a baud mismatch still shows `rx_bytes>0`. After a 9600 link, firmware issues `ATB=115200` and retunes the host UART.
+

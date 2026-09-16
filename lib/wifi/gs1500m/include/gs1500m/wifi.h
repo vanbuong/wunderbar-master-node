@@ -7,6 +7,7 @@
 #define GS1500M_WIFI_H
 
 #include "gs1500m/at.h"
+#include "gs1500m/platform.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -41,12 +42,23 @@ typedef struct {
 } gs_wifi_status_t;
 
 /**
- * Bring-up sequence:
- * INTF_SEL UART → PGM idle → HW reset pulse → wait ready (≥2s) →
- * flush → AT probe (optional AT+RESET) → ATE0 → AT+BDATA=1 → radio on →
- * query module info (VER / MAC).
+ * Bring-up sequence (multi-strategy):
+ * Try INTF_SEL float/1/0 × baud 115200/9600 with HW reset + AT probe, then
+ * ATE0 → AT+BDATA=1 → radio on → query module info (VER / MAC).
+ * If the link opens at 9600, host switches to 115200 via ATB=115200.
  */
 gs_msg_id_t gs_wifi_init(uint32_t ready_timeout_ms);
+
+/** Diagnostics from the last gs_wifi_init attempt. */
+typedef struct {
+	uint32_t baud;       /**< Host UART baud that answered AT (0 if none) */
+	int intf_sel;        /**< -1=float, 0, or 1 */
+	bool saw_boot;       /**< Saw Serial2WiFi / APP Reset banner */
+	uint32_t rx_bytes;   /**< Parser RX count after last probe */
+	gs_ctrl_pins_t pins; /**< Control GPIO sample after last attempt */
+} gs_wifi_init_diag_t;
+
+const gs_wifi_init_diag_t *gs_wifi_last_init_diag(void);
 
 gs_msg_id_t gs_wifi_echo(bool on);
 gs_msg_id_t gs_wifi_soft_reset(void);

@@ -13,6 +13,7 @@
 #include <ctype.h>
 
 static gs_wifi_module_info_t s_module_info;
+static gs_wifi_init_diag_t s_init_diag;
 
 static void delay_ms(uint32_t ms)
 {
@@ -276,77 +277,175 @@ const gs_wifi_module_info_t *gs_wifi_last_module_info(void)
 	return &s_module_info;
 }
 
-gs_msg_id_t gs_wifi_init(uint32_t ready_timeout_ms)
+const gs_wifi_init_diag_t *gs_wifi_last_init_diag(void)
+{
+	return &s_init_diag;
+}
+
+static void diag_sample(uint32_t baud, int intf_sel, bool saw_boot)
 {
 	const gs_platform_t *p = gs_platform_get();
-	uint32_t start;
+
+	memset(&s_init_diag, 0, sizeof(s_init_diag));
+	s_init_diag.baud = baud;
+	s_init_diag.intf_sel = intf_sel;
+	s_init_diag.saw_boot = saw_boot;
+	s_init_diag.rx_bytes = gs_at_rx_byte_count();
+	if (p && p->ctrl_pins_get) {
+		p->ctrl_pins_get(&s_init_diag.pins, p->ctx);
+	}
+}
+
+static bool wait_boot_banner(uint32_t timeout_ms)
+{
+	const gs_platform_t *p = gs_platform_get();
+	uint32_t start = now_ms();
+
+	if (!p || !p->uart_read) {
+		return false;
+	}
+	while ((now_ms() - start) < timeout_ms) {
+		uint8_t b;
+		if (p->uart_read(&b, 1, 20U, p->ctx) > 0) {
+			gs_msg_id_t mid = gs_at_process_byte(b);
+			if (mid == GS_MSG_WELCOME || mid == GS_MSG_APP_RESET) {
+				return true;
+			}
+		} else {
+			delay_ms(10);
+		}
+	}
+	return false;
+}
+
+static gs_msg_id_t probe_at(uint32_t timeout_ms)
+{
 	gs_msg_id_t id;
-	bool saw_boot = false;
-	uint32_t min_boot_ms = 2000U;
+
+	(void)gs_at_write((const uint8_t *)"\r\n", 2U);
+	delay_ms(30);
+	gs_at_flush();
+	id = gs_at_send_cmd("AT\r\n", timeout_ms);
+	return id;
+}
+
+static gs_msg_id_t try_link_once(uint32_t baud, int intf_sel, uint32_t boot_ms)
+{
+	const gs_platform_t *p = gs_platform_get();
+	bool saw_boot;
+	gs_msg_id_t id;
 
 	if (!p) {
 		return GS_MSG_ERROR;
 	}
-	if (ready_timeout_ms < min_boot_ms) {
-		ready_timeout_ms = min_boot_ms;
-	}
 
 	gs_at_init(NULL);
 
-	/* INTF_SEL / PGM must be stable before releasing reset. */
-	if (p->intf_sel_uart) {
+	if (p->uart_set_baud && p->uart_set_baud(baud, p->ctx) != 0) {
+		return GS_MSG_ERROR;
+	}
+	if (p->intf_sel_set) {
+		p->intf_sel_set(intf_sel, p->ctx);
+	} else if (p->intf_sel_uart && intf_sel == (int)GS_INTF_SEL_UART_LEVEL) {
 		p->intf_sel_uart(p->ctx);
 	}
 	if (p->pgm_set) {
-		p->pgm_set(false, p->ctx); /* idle / deasserted */
+		p->pgm_set(false, p->ctx);
 	}
-
-	/* Hardware reset pulse (active low). Hold long enough for GS1500M. */
 	if (p->reset_set) {
 		p->reset_set(true, p->ctx);
 		delay_ms(200);
 		p->reset_set(false, p->ctx);
 	}
 
-	/* Wait for Serial2WiFi banner (always ≥ min_boot_ms after reset). */
-	start = now_ms();
-	while ((now_ms() - start) < ready_timeout_ms) {
-		uint8_t b;
-		if (p->uart_read && p->uart_read(&b, 1, 20U, p->ctx) > 0) {
-			gs_msg_id_t mid = gs_at_process_byte(b);
-			if (mid == GS_MSG_WELCOME || mid == GS_MSG_APP_RESET) {
-				saw_boot = true;
-				break;
-			}
-		} else {
-			delay_ms(10);
-		}
-	}
-
+	saw_boot = wait_boot_banner(boot_ms);
 	if (!saw_boot) {
-		delay_ms(500);
+		delay_ms(200);
 	}
 
-	/* Nudge + flush stale boot noise before probing. */
-	(void)gs_at_write((const uint8_t *)"\r\n", 2U);
-	delay_ms(50);
-	gs_at_flush();
-
-	/* Probe link before soft-reset. */
-	id = gs_at_send_cmd("AT\r\n", 3000U);
+	id = probe_at(1500U);
 	if (id != GS_MSG_OK) {
-		id = gs_wifi_soft_reset();
-		if (id != GS_MSG_OK && id != GS_MSG_WELCOME && id != GS_MSG_APP_RESET &&
-		    id != GS_MSG_TIMEOUT) {
-			/* Keep going; many firmwares only print a banner. */
-		}
-		delay_ms(1500);
-		gs_at_flush();
-		id = gs_at_send_cmd("AT\r\n", 5000U);
-		if (id != GS_MSG_OK) {
-			return id;
+		/* Soft-reset only helps if the UART already matches. */
+		if (gs_at_rx_byte_count() > 0U) {
+			(void)gs_wifi_soft_reset();
+			delay_ms(1000);
+			gs_at_flush();
+			id = probe_at(2000U);
 		}
 	}
+
+	diag_sample((id == GS_MSG_OK) ? baud : 0U, intf_sel, saw_boot);
+	if (id != GS_MSG_OK) {
+		s_init_diag.baud = baud; /* remember last tried baud */
+		s_init_diag.rx_bytes = gs_at_rx_byte_count();
+	}
+	return id;
+}
+
+static gs_msg_id_t maybe_switch_to_115200(uint32_t current_baud)
+{
+	gs_msg_id_t id;
+	const gs_platform_t *p = gs_platform_get();
+
+	if (current_baud == GS_UART_BAUD_DEFAULT) {
+		return GS_MSG_OK;
+	}
+	/* Module ATB takes effect immediately; then retune host UART. */
+	id = gs_at_send_cmd("ATB=115200\r\n", 2000U);
+	if (id != GS_MSG_OK) {
+		return id;
+	}
+	delay_ms(50);
+	if (p && p->uart_set_baud) {
+		(void)p->uart_set_baud(GS_UART_BAUD_DEFAULT, p->ctx);
+	}
+	gs_at_flush();
+	id = probe_at(2000U);
+	if (id == GS_MSG_OK) {
+		s_init_diag.baud = GS_UART_BAUD_DEFAULT;
+	}
+	return id;
+}
+
+gs_msg_id_t gs_wifi_init(uint32_t ready_timeout_ms)
+{
+	const gs_platform_t *p = gs_platform_get();
+	static const uint32_t bauds[] = { 115200U, 9600U, 57600U };
+	static const int intf_modes[] = { -1, 1, 0 }; /* float, high, low */
+	uint32_t boot_ms;
+	size_t bi;
+	size_t ii;
+	gs_msg_id_t id = GS_MSG_TIMEOUT;
+	uint32_t ok_baud = 0U;
+
+	if (!p) {
+		return GS_MSG_ERROR;
+	}
+
+	boot_ms = ready_timeout_ms / 4U;
+	if (boot_ms < 800U) {
+		boot_ms = 800U;
+	}
+	if (boot_ms > 2500U) {
+		boot_ms = 2500U;
+	}
+
+	memset(&s_init_diag, 0, sizeof(s_init_diag));
+	s_init_diag.intf_sel = -1;
+
+	for (bi = 0; bi < sizeof(bauds) / sizeof(bauds[0]); bi++) {
+		for (ii = 0; ii < sizeof(intf_modes) / sizeof(intf_modes[0]); ii++) {
+			id = try_link_once(bauds[bi], intf_modes[ii], boot_ms);
+			if (id == GS_MSG_OK) {
+				ok_baud = bauds[bi];
+				goto linked;
+			}
+		}
+	}
+	return id;
+
+linked:
+	(void)maybe_switch_to_115200(ok_baud);
 
 	id = gs_wifi_echo(false);
 	if (id != GS_MSG_OK) {
@@ -363,7 +462,6 @@ gs_msg_id_t gs_wifi_init(uint32_t ready_timeout_ms)
 		return id;
 	}
 
-	/* Best-effort identity dump; bring-up still succeeds if VER/MAC fail. */
 	(void)gs_wifi_query_module_info(NULL);
 	return GS_MSG_OK;
 }
