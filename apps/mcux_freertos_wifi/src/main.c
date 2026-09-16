@@ -138,6 +138,7 @@ static const char *prvMsgName(gs_msg_id_t id)
 	case GS_MSG_WELCOME: return "WELCOME";
 	case GS_MSG_APP_RESET: return "APP_RESET";
 	case GS_MSG_CONNECT: return "CONNECT";
+	case GS_MSG_DISASSOCIATED: return "DISASSOC";
 	default: return "?";
 	}
 }
@@ -289,6 +290,9 @@ static void prvWifiTask(void *pvParameters)
 					(partial && partial[0]) ? partial : "");
 				WB_LOGE("AT info: '%s'",
 					(accum && accum[0]) ? accum : "");
+				if (s_user.last_msg == GS_MSG_APP_RESET) {
+					WB_LOGE("module warm-boot during bring-up");
+				}
 				if (d) {
 					WB_LOGE("init try baud=%u intf=%s pgm=%s hw_rst=%d saw_boot=%d rx=%u rst=%u pgm_pin=%u intf_pin=%u hiz=%u",
 						(unsigned)d->baud,

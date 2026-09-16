@@ -8,9 +8,19 @@
 #include "gs1500m/ssl.h"
 #include "gs1500m/limited_ap.h"
 #include "gs1500m/http.h"
+#include "gs1500m/platform.h"
 #include "wb_time.h"
 
 #include <string.h>
+
+static void delay_join_retry(void)
+{
+	const gs_platform_t *p = gs_platform_get();
+
+	if (p && p->delay_ms) {
+		p->delay_ms(500U, p->ctx);
+	}
+}
 
 void gs_user_init(gs_user_t *u, const gs_user_config_t *cfg)
 {
@@ -58,8 +68,20 @@ gs_user_state_t gs_user_poll(gs_user_t *u)
 			break;
 		}
 		id = gs_wifi_join_wpa(u->cfg.ssid, u->cfg.psk);
+		/*
+		 * Module sometimes warm-boots during the first associate. Re-init
+		 * the UART link once and retry.
+		 */
+		if (id == GS_MSG_APP_RESET || id == GS_MSG_TIMEOUT) {
+			gs_at_flush();
+			delay_join_retry();
+			if (gs_wifi_init(8000U) == GS_MSG_OK) {
+				id = gs_wifi_join_wpa(u->cfg.ssid, u->cfg.psk);
+			}
+		}
 		u->last_msg = id;
 		if (id == GS_MSG_OK) {
+			(void)gs_wifi_bulk_data(true);
 			(void)gs_wifi_query_module_info(NULL);
 			if (!gs_wifi_last_ip()[0]) {
 				(void)gs_wifi_get_status(NULL);

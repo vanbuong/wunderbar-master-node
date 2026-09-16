@@ -64,17 +64,17 @@ gs_msg_id_t gs_at_wait_response(uint32_t timeout_ms)
 			case GS_MSG_CONNECT_SERVER_CLIENT:
 			case GS_MSG_DISCONNECT:
 			case GS_MSG_DISASSOCIATED:
+			case GS_MSG_APP_RESET:
 			case GS_MSG_ESC_OK:
 			case GS_MSG_ESC_FAIL:
 			case GS_MSG_FW_UPDATE_OK:
 				return id;
 			/*
-			 * WELCOME / APP_RESET are boot banners. Do not treat them as
-			 * command terminals — AT+VER=? can include "Serial2WiFi APP"
-			 * before the version lines and OK.
+			 * WELCOME ("Serial2WiFi APP") is a boot banner that can also
+			 * appear in AT+VER output — do not treat it as a command end.
+			 * APP_RESET ("UnExpected Warm Boot") is a real fault/reset.
 			 */
 			case GS_MSG_WELCOME:
-			case GS_MSG_APP_RESET:
 			default:
 				break;
 			}
@@ -94,11 +94,6 @@ gs_msg_id_t gs_at_send_cmd(const char *cmd, uint32_t timeout_ms)
 	if (!cmd) {
 		return GS_MSG_ERROR;
 	}
-	/*
-	 * Drop stale RX (previous timeout leftovers, unsolicited banners) so the
-	 * next OK/ERROR cannot be paired with an old partial line.
-	 */
-	gs_at_flush();
 	len = strlen(cmd);
 	if (gs_at_write((const uint8_t *)cmd, len) < 0) {
 		return GS_MSG_ERROR;

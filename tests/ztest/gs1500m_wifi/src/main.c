@@ -46,13 +46,15 @@ ZTEST(gs1500m_wifi_tests, test_init_bringup)
 	/* PE-style bring-up may succeed without a HW reset pulse. */
 	zassert_true(s_stub.reset_pulses <= 1U);
 	zassert_true(gs_stub_tx_contains(&s_stub, "ATE0\r\n"));
-	zassert_true(gs_stub_tx_contains(&s_stub, "AT+BDATA=1\r\n"));
+	zassert_true(gs_stub_tx_contains(&s_stub, "AT+WRXACTIVE=1\r\n"));
+	zassert_false(gs_stub_tx_contains(&s_stub, "AT+BDATA=1\r\n"));
 }
 
 ZTEST(gs1500m_wifi_tests, test_join_wpa)
 {
 	zassert_equal(gs_wifi_join_wpa("SSID", "passw0rd"), GS_MSG_OK);
-	zassert_true(gs_stub_tx_contains(&s_stub, "AT+WWPA=passw0rd\r\n"));
+	zassert_true(gs_stub_tx_contains(&s_stub, "AT+WPAPSK=SSID,passw0rd\r\n") ||
+		     gs_stub_tx_contains(&s_stub, "AT+WWPA=passw0rd\r\n"));
 	zassert_true(gs_stub_tx_contains(&s_stub, "AT+WA=SSID\r\n"));
 }
 

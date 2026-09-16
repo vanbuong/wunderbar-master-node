@@ -609,18 +609,17 @@ linked:
 		return id;
 	}
 
-	id = gs_wifi_bulk_data(true);
-	if (id != GS_MSG_OK) {
-		return id;
-	}
-
 	id = gs_wifi_radio(true);
 	if (id != GS_MSG_OK) {
 		return id;
 	}
 
-	/* Defer VER/NMAC until after join — keeps the association path clean. */
+	/*
+	 * Leave BDATA off until after association. Some GS1500M builds are
+	 * unstable associating with bulk mode already enabled.
+	 */
 	gs_at_flush();
+	delay_ms(200);
 	return GS_MSG_OK;
 }
 
@@ -686,16 +685,26 @@ gs_msg_id_t gs_wifi_join(const char *ssid, const char *bssid_or_null,
 
 	/* AT+WA prints IP addr=… before OK — capture even on timeout. */
 	harvest_ip_from_last_info();
+	if (id == GS_MSG_APP_RESET) {
+		return id;
+	}
 	if (id == GS_MSG_TIMEOUT && s_last_status.ip[0]) {
 		return GS_MSG_OK;
 	}
 	if (id == GS_MSG_TIMEOUT) {
 		/* Also accept association keywords without a parsed IP yet. */
 		const char *blob = gs_at_info_accum();
-		if (blob && (strstr(blob, "ASSOCIATED") || strstr(blob, "SSID") ||
-			     strstr(blob, "IP"))) {
+		const char *partial = gs_at_partial_line();
+		if ((blob && (strstr(blob, "ASSOCIATED") || strstr(blob, "SSID") ||
+			      strstr(blob, "IP"))) ||
+		    (partial && strstr(partial, "IP"))) {
 			s_last_status.associated = true;
 			return GS_MSG_OK;
+		}
+		/* Warm-boot banner often arrives fragmented. */
+		if ((partial && strstr(partial, "UnEx")) ||
+		    (blob && strstr(blob, "UnExpected"))) {
+			return GS_MSG_APP_RESET;
 		}
 	}
 	if (id == GS_MSG_OK) {
@@ -1051,23 +1060,53 @@ gs_msg_id_t gs_wifi_join_wpa(const char *ssid, const char *psk)
 {
 	gs_msg_id_t id;
 
+	if (!ssid) {
+		return GS_MSG_INVALID_INPUT;
+	}
+
+	/* Drop any prior association; ignore errors. */
+	gs_at_flush();
+	(void)gs_wifi_disconnect();
+	delay_ms(100);
+
 	id = gs_wifi_set_mode(GS_WIFI_MODE_STA);
 	if (id != GS_MSG_OK) {
 		return id;
 	}
-	id = gs_wifi_set_security(GS_WIFI_SEC_WPA_WPA2_PSK);
-	if (id != GS_MSG_OK) {
-		return id;
-	}
+
 	if (psk && psk[0]) {
-		id = gs_wifi_set_passphrase(psk);
+		/*
+		 * Prefer AT+WPAPSK=<ssid>,<passphrase> (computes PSK for this SSID).
+		 * Fall back to WSEC + WWPA on older firmwares.
+		 */
+		id = gs_at_send_cmdf(GS_AT_DEFAULT_CMD_TIMEOUT_MS, "AT+WPAPSK=%s,%s\r\n",
+				     ssid, psk);
+		if (id != GS_MSG_OK) {
+			id = gs_wifi_set_security(GS_WIFI_SEC_WPA_WPA2_PSK);
+			if (id != GS_MSG_OK) {
+				return id;
+			}
+			id = gs_wifi_set_passphrase(psk);
+			if (id != GS_MSG_OK) {
+				return id;
+			}
+		}
+	} else {
+		id = gs_wifi_set_security(GS_WIFI_SEC_OPEN);
 		if (id != GS_MSG_OK) {
 			return id;
 		}
 	}
+
 	id = gs_wifi_dhcp_client(true);
 	if (id != GS_MSG_OK) {
 		return id;
 	}
-	return gs_wifi_join(ssid, NULL, NULL);
+
+	delay_ms(100);
+	id = gs_wifi_join(ssid, NULL, NULL);
+	if (id == GS_MSG_APP_RESET) {
+		return id;
+	}
+	return id;
 }

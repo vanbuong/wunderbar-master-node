@@ -46,8 +46,9 @@ void test_wifi_init_pulses_reset_and_sends_bringup_cmds(void)
 	/* PE leaves RESET as input; first successful try may skip HW pulse. */
 	TEST_ASSERT_TRUE(s_stub.reset_pulses <= 1U);
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "ATE0\r\n"));
-	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+BDATA=1\r\n"));
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+WRXACTIVE=1\r\n"));
+	/* Bulk mode is deferred until after join. */
+	TEST_ASSERT_FALSE(gs_stub_tx_contains(&s_stub, "AT+BDATA=1\r\n"));
 	/* VER/NMAC are queried after join, not during init. */
 	TEST_ASSERT_FALSE(gs_stub_tx_contains(&s_stub, "AT+VER="));
 }
@@ -72,8 +73,9 @@ void test_wifi_join_wpa_command_sequence(void)
 
 	TEST_ASSERT_EQUAL_INT(GS_MSG_OK, id);
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+WM=0\r\n"));
-	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+WSEC=8\r\n"));
-	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+WWPA=secret12\r\n"));
+	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+WPAPSK=CafeWifi,secret12\r\n") ||
+			(gs_stub_tx_contains(&s_stub, "AT+WSEC=8\r\n") &&
+			 gs_stub_tx_contains(&s_stub, "AT+WWPA=secret12\r\n")));
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+NDHCP=1\r\n"));
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+WA=CafeWifi\r\n"));
 }
@@ -262,6 +264,7 @@ void test_user_sm_queries_ip_and_ntp(void)
 	TEST_ASSERT_EQUAL_STRING("192.168.1.50", gs_wifi_last_ip());
 	TEST_ASSERT_TRUE(gs_wifi_last_unix_time() != 0U);
 	TEST_ASSERT_TRUE(wb_time_is_synced());
+	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+BDATA=1\r\n"));
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+VER="));
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+NMAC=?\r\n"));
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+GETTIME=?\r\n"));
