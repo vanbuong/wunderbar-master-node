@@ -43,14 +43,15 @@ void test_wifi_init_pulses_reset_and_sends_bringup_cmds(void)
 	TEST_ASSERT_EQUAL_INT(GS_MSG_OK, id);
 	TEST_ASSERT_TRUE(s_stub.last_intf_uart);
 	TEST_ASSERT_FALSE(s_stub.last_pgm_assert);
-	/* PE leaves RESET as input; first successful try may skip HW pulse. */
-	TEST_ASSERT_TRUE(s_stub.reset_pulses <= 1U);
+	/* Mandatory hard-reset at start of init. */
+	TEST_ASSERT_TRUE(s_stub.reset_pulses >= 1U);
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "ATE0\r\n"));
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+WRXACTIVE=1\r\n"));
 	/* Bulk mode is deferred until after join. */
 	TEST_ASSERT_FALSE(gs_stub_tx_contains(&s_stub, "AT+BDATA=1\r\n"));
 	/* VER/NMAC are queried after join, not during init. */
 	TEST_ASSERT_FALSE(gs_stub_tx_contains(&s_stub, "AT+VER="));
+	TEST_ASSERT_TRUE(gs_wifi_last_init_diag()->hw_reset);
 }
 
 void test_wifi_query_module_info_parses_ver_mac(void)

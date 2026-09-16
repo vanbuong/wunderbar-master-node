@@ -43,11 +43,18 @@ typedef struct {
 
 /**
  * Bring-up sequence (multi-strategy):
- * Try INTF_SEL float/1/0 × baud 115200/9600 with HW reset + AT probe, then
- * ATE0 → radio on. BDATA and VER/MAC are applied after a successful join.
+ * Hard-reset the module (PGM float + EXT_RESETn pulse), wait for boot banner,
+ * then try INTF_SEL float/1/0 × baud 115200/9600 + AT probe, then ATE0 → radio.
+ * BDATA and VER/MAC are applied after a successful join.
  * If the link opens at 9600, host switches to 115200 via ATB=115200.
  */
 gs_msg_id_t gs_wifi_init(uint32_t ready_timeout_ms);
+
+/**
+ * Pulse WIFI_!RESET with PGM in run mode (float). Leaves the module in a
+ * fresh boot state; also performed at the start of gs_wifi_init().
+ */
+void gs_wifi_hw_reset(void);
 
 /** Diagnostics from the last gs_wifi_init attempt. */
 typedef struct {

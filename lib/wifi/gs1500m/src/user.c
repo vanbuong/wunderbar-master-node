@@ -75,6 +75,7 @@ gs_user_state_t gs_user_poll(gs_user_t *u)
 		if (id == GS_MSG_APP_RESET || id == GS_MSG_TIMEOUT) {
 			gs_at_flush();
 			delay_join_retry();
+			/* gs_wifi_init() hard-resets the module before probing. */
 			if (gs_wifi_init(8000U) == GS_MSG_OK) {
 				id = gs_wifi_join_wpa(u->cfg.ssid, u->cfg.psk);
 			}

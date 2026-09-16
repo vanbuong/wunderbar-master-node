@@ -43,11 +43,12 @@ ZTEST(gs1500m_wifi_tests, test_init_bringup)
 {
 	zassert_equal(gs_wifi_init(1000U), GS_MSG_OK);
 	zassert_true(s_stub.last_intf_uart);
-	/* PE-style bring-up may succeed without a HW reset pulse. */
-	zassert_true(s_stub.reset_pulses <= 1U);
+	/* Mandatory hard-reset at start of init. */
+	zassert_true(s_stub.reset_pulses >= 1U);
 	zassert_true(gs_stub_tx_contains(&s_stub, "ATE0\r\n"));
 	zassert_true(gs_stub_tx_contains(&s_stub, "AT+WRXACTIVE=1\r\n"));
 	zassert_false(gs_stub_tx_contains(&s_stub, "AT+BDATA=1\r\n"));
+	zassert_true(gs_wifi_last_init_diag()->hw_reset);
 }
 
 ZTEST(gs1500m_wifi_tests, test_join_wpa)

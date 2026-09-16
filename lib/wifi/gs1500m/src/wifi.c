@@ -469,6 +469,32 @@ static void apply_pgm(int8_t pgm_idle)
 	}
 }
 
+/**
+ * Hardware reset into a clean run state: PGM = float (not program mode),
+ * EXT_RESETn pulsed low then released to input/pull-up.
+ */
+void gs_wifi_hw_reset(void)
+{
+	const gs_platform_t *p = gs_platform_get();
+
+	if (!p || !p->reset_set) {
+		return;
+	}
+
+	/* Run mode: PGM must not be high across reset (that enters flash download). */
+	apply_pgm(-1);
+	if (p->intf_sel_set) {
+		p->intf_sel_set(-1, p->ctx); /* float — board pull selects UART */
+	}
+	delay_ms(10);
+
+	gs_at_flush();
+	p->reset_set(true, p->ctx);  /* drive EXT_RESETn low */
+	delay_ms(100);
+	p->reset_set(false, p->ctx); /* release to input / pull-up */
+	delay_ms(50);
+}
+
 static gs_msg_id_t try_link_once(uint32_t baud, int intf_sel, int8_t pgm_idle,
 				 bool hw_reset, uint32_t boot_ms)
 {
@@ -552,8 +578,8 @@ gs_msg_id_t gs_wifi_init(uint32_t ready_timeout_ms)
 {
 	const gs_platform_t *p = gs_platform_get();
 	/*
-	 * Match PE: PGM untouched (float), RESET idle as input (optional pulse),
-	 * INTF left alone. Try no-HW-reset first, then OD-style pulse.
+	 * Always hard-reset first so the module leaves any hung AT/association
+	 * state. Then probe with PGM float and optional extra reset strategies.
 	 */
 	static const bool hw_resets[] = { false, true };
 	static const int8_t pgm_modes[] = { -1, 0 }; /* float (PE), then drive low */
@@ -566,6 +592,7 @@ gs_msg_id_t gs_wifi_init(uint32_t ready_timeout_ms)
 	size_t ii;
 	gs_msg_id_t id = GS_MSG_TIMEOUT;
 	uint32_t ok_baud = 0U;
+	bool saw_boot;
 
 	if (!p) {
 		return GS_MSG_ERROR;
@@ -583,6 +610,21 @@ gs_msg_id_t gs_wifi_init(uint32_t ready_timeout_ms)
 	s_init_diag.intf_sel = -1;
 	s_init_diag.pgm_idle = -1;
 
+	gs_at_init(NULL);
+	if (p->uart_set_baud) {
+		(void)p->uart_set_baud(GS_UART_BAUD_DEFAULT, p->ctx);
+	}
+
+	/* Fresh module state before any AT traffic. */
+	gs_wifi_hw_reset();
+	saw_boot = wait_boot_banner(boot_ms);
+	if (!saw_boot) {
+		delay_ms(300);
+	}
+	gs_at_flush();
+	s_init_diag.hw_reset = true;
+	s_init_diag.saw_boot = saw_boot;
+
 	for (ri = 0; ri < sizeof(hw_resets) / sizeof(hw_resets[0]); ri++) {
 		for (pi = 0; pi < sizeof(pgm_modes) / sizeof(pgm_modes[0]); pi++) {
 			for (bi = 0; bi < sizeof(bauds) / sizeof(bauds[0]); bi++) {
@@ -593,6 +635,11 @@ gs_msg_id_t gs_wifi_init(uint32_t ready_timeout_ms)
 							   boot_ms);
 					if (id == GS_MSG_OK) {
 						ok_baud = bauds[bi];
+						/* Preserve that we hard-reset at start. */
+						s_init_diag.hw_reset = true;
+						if (saw_boot) {
+							s_init_diag.saw_boot = true;
+						}
 						goto linked;
 					}
 				}
