@@ -66,7 +66,7 @@ static void wait_for_dtr(void)
 #endif
 
 static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb,
-				    uint32_t mgmt_event, struct net_if *iface)
+				    uint64_t mgmt_event, struct net_if *iface)
 {
 	const struct wifi_status *st = (const struct wifi_status *)cb->info;
 
