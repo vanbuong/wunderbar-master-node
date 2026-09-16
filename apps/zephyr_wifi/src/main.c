@@ -3,19 +3,24 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Zephyr GS1500M WiFi bring-up + optional STA join.
+ * Logging: Zephyr LOG_*; wall clock: SYS_CLOCK_REALTIME (via wb_time_zephyr).
  */
 
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/sys/clock.h>
 
 #include <string.h>
+#include <time.h>
 
-#include "wb_log.h"
-#include "wb_time.h"
 #include "gs1500m/wifi.h"
 #include "gs1500m/user.h"
 #include "gs_platform_zephyr.h"
 #include "wb_wifi_cred.h"
+#include "wb_time.h"
+
+LOG_MODULE_REGISTER(wb_wifi, LOG_LEVEL_INF);
 
 #if DT_HAS_CHOSEN(zephyr_console) && \
 	DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_console), zephyr_cdc_acm_uart)
@@ -83,18 +88,18 @@ static void log_module_info(void)
 	if (!mi) {
 		return;
 	}
-	WB_LOGI("wifi module: name=%s mac=%s",
+	LOG_INF("wifi module: name=%s mac=%s",
 		mi->name[0] ? mi->name : "(unknown)",
 		mi->mac[0] ? mi->mac : "(unknown)");
 	if (mi->app_ver[0] || mi->geps_ver[0] || mi->wlan_ver[0]) {
-		WB_LOGI("wifi fw: app=%s geps=%s wlan=%s",
+		LOG_INF("wifi fw: app=%s geps=%s wlan=%s",
 			mi->app_ver[0] ? mi->app_ver : "?",
 			mi->geps_ver[0] ? mi->geps_ver : "?",
 			mi->wlan_ver[0] ? mi->wlan_ver : "?");
 	} else if (mi->version[0]) {
-		WB_LOGI("wifi fw: %s", mi->version);
+		LOG_INF("wifi fw: %s", mi->version);
 	} else {
-		WB_LOGI("wifi fw: (unavailable)");
+		LOG_INF("wifi fw: (unavailable)");
 	}
 }
 
@@ -108,22 +113,20 @@ static void log_ip(void)
 			ip = buf;
 		}
 	}
-	WB_LOGI("wifi ip: %s", (ip && ip[0]) ? ip : "(none)");
+	LOG_INF("wifi ip: %s", (ip && ip[0]) ? ip : "(none)");
 }
 
 static void log_ntp_time(void)
 {
 	const char *t = gs_wifi_last_time_str();
-	WB_LOGI("wifi ntp: %s (unix=%u synced=%d)",
+	struct timespec ts;
+
+	(void)sys_clock_gettime(SYS_CLOCK_REALTIME, &ts);
+	LOG_INF("wifi ntp: %s (unix=%u synced=%d realtime=%lld)",
 		(t && t[0]) ? t : "(sync failed)",
 		(unsigned)gs_wifi_last_unix_time(),
-		wb_time_is_synced() ? 1 : 0);
-}
-
-static uint32_t app_millis(void *ctx)
-{
-	(void)ctx;
-	return k_uptime_get_32();
+		wb_time_is_synced() ? 1 : 0,
+		(long long)ts.tv_sec);
 }
 
 int main(void)
@@ -131,8 +134,8 @@ int main(void)
 	gs_user_config_t cfg;
 	gs_user_state_t prev = GS_USER_IDLE;
 
-	wb_time_init(app_millis, NULL);
-	wb_log_init(wb_log_stdio_backend(), WB_LOG_INFO);
+	/* Bridge GS NTP → SYS_CLOCK_REALTIME (see wb_time_zephyr). */
+	wb_time_init(NULL, NULL);
 
 	if (!gpio_is_ready_dt(&led)) {
 		return 0;
@@ -141,13 +144,13 @@ int main(void)
 
 #if CONSOLE_IS_USB_CDC
 	wait_for_dtr();
-	WB_LOGI("WunderBar WiFi (Zephyr USB)");
+	LOG_INF("WunderBar WiFi (Zephyr USB)");
 #else
-	WB_LOGI("WunderBar WiFi (Zephyr RTT)");
+	LOG_INF("WunderBar WiFi (Zephyr RTT)");
 #endif
 
 	if (gs_platform_zephyr_init(&s_gs_plat) != 0) {
-		WB_LOGE("GS platform init failed");
+		LOG_ERR("GS platform init failed");
 		return 0;
 	}
 
@@ -163,28 +166,28 @@ int main(void)
 
 	{
 		const wb_wifi_cred_t *c = wb_wifi_cred_at_flash();
-		WB_LOGI("cred @0x%08X raw=%02X%02X%02X%02X%02X%02X%02X%02X",
+		LOG_INF("cred @0x%08X raw=%02X%02X%02X%02X%02X%02X%02X%02X",
 			(unsigned)WB_WIFI_CRED_FLASH_ADDR,
 			(unsigned)(uint8_t)c->magic[0], (unsigned)(uint8_t)c->magic[1],
 			(unsigned)(uint8_t)c->magic[2], (unsigned)(uint8_t)c->magic[3],
 			(unsigned)(uint8_t)c->magic[4], (unsigned)(uint8_t)c->magic[5],
 			(unsigned)(uint8_t)c->magic[6], (unsigned)(uint8_t)c->magic[7]);
-		WB_LOGI("cred valid=%d ssid=%s",
+		LOG_INF("cred valid=%d ssid=%s",
 			wb_wifi_cred_valid() ? 1 : 0,
 			(cfg.ssid && cfg.ssid[0]) ? cfg.ssid : "(none)");
 	}
-	WB_LOGI("GS1500M bring-up (ssid %s)",
+	LOG_INF("GS1500M bring-up (ssid %s)",
 		(cfg.ssid && cfg.ssid[0]) ? cfg.ssid : "(none)");
 
 	while (1) {
 		gs_user_state_t st = gs_user_poll(&s_user);
 		if (st != prev) {
-			WB_LOGI("wifi SM: %s (msg=%d)", state_name(st),
+			LOG_INF("wifi SM: %s (msg=%d)", state_name(st),
 				(int)s_user.last_msg);
 			if (prev == GS_USER_INIT && st != GS_USER_ERROR) {
 				const gs_wifi_init_diag_t *d = gs_wifi_last_init_diag();
 				if (d) {
-					WB_LOGI("wifi link: baud=%u intf=%s pgm=%s hw_rst=%d saw_boot=%d rx=%u",
+					LOG_INF("wifi link: baud=%u intf=%s pgm=%s hw_rst=%d saw_boot=%d rx=%u",
 						(unsigned)d->baud,
 						d->intf_sel < 0 ? "float" :
 							(d->intf_sel ? "1" : "0"),
@@ -204,13 +207,13 @@ int main(void)
 			}
 			if (st == GS_USER_ERROR) {
 				const gs_wifi_init_diag_t *d = gs_wifi_last_init_diag();
-				WB_LOGE("last AT line: '%s'", gs_at_last_line());
-				WB_LOGE("AT rx_bytes=%u partial='%s'",
+				LOG_ERR("last AT line: '%s'", gs_at_last_line());
+				LOG_ERR("AT rx_bytes=%u partial='%s'",
 					(unsigned)gs_at_rx_byte_count(),
 					gs_at_partial_line()[0] ? gs_at_partial_line()
 								: "");
 				if (d) {
-					WB_LOGE("init try baud=%u intf=%s pgm=%s hw_rst=%d saw_boot=%d rx=%u",
+					LOG_ERR("init try baud=%u intf=%s pgm=%s hw_rst=%d saw_boot=%d rx=%u",
 						(unsigned)d->baud,
 						d->intf_sel < 0 ? "float" :
 							(d->intf_sel ? "1" : "0"),
