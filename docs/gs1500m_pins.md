@@ -6,9 +6,9 @@ UART AT path (primary — matches legacy `WunderBar_WiFi` firmware). SPI pins ar
 |--------|----------|------|
 | `WIFI_UART_TX_LPC_RX` | **PTD6** | MCU UART0 RX |
 | `WIFI_UART_RX_LPC_TX` | **PTD7** | MCU UART0 TX |
-| `WIFI_!RESET` | **PTD5** | Active-low reset (open-drain pulse; module ready when released) |
-| `WIFI_PGM` | **PTE6** | Programming (UART1_RTS/GPIO27) — must be **LOW** for normal boot; **HIGH** at reset enters flash-download mode |
-| `WIFI_INTF_SEL` | **PTA11** | Interface select — drive UART mode at boot |
+| `WIFI_!RESET` | **PTD5** | PE: GPIO **input** idle (hi-Z); pulse = drive low then release to input |
+| `WIFI_PGM` | **PTE6** | PE: **not initialized** — leave floating (board pull = run). High at reset ⇒ flash-download |
+| `WIFI_INTF_SEL` | **PTA11** | PE: mux GPIO then leave alone — bring-up tries float / 1 / 0 |
 | `WIFI_RTC_OUT` | **PTB16** | Module RTC out (input, optional) |
 | `WIFI_ALARM1` | **PTD9** | Alarm GPIO (input) |
 | `WIFI_SPI_IRQ` | **PTD10** | SPI IRQ (unused for AT v1; GPIO reserved) |

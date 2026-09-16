@@ -22,7 +22,8 @@
 #endif
 
 static uint32_t s_uart_baud = GS_UART_BAUD_DEFAULT;
-static bool s_intf_hiz;
+static bool s_intf_hiz = true;
+static bool s_pgm_hiz = true;
 
 static uint32_t gs_uart_src_hz(void)
 {
@@ -116,9 +117,24 @@ static void freertos_delay_ms(uint32_t ms, void *ctx)
 
 static void freertos_reset_set(bool assert_reset, void *ctx)
 {
+	gpio_pin_config_t cfg;
 	(void)ctx;
-	/* Push-pull active-low: OD+weak pull left some boards stuck in reset. */
-	GPIO_PinWrite(GPIOD, GS_PIN_RESET_NUM, assert_reset ? 0U : 1U);
+
+	/*
+	 * Match PE BitIoLdd2 (PTD5): idle = GPIO input (hi-Z), PDOR preload 1.
+	 * Assert = drive output low. Release = return to input (board/module pull).
+	 * GainSpan EXT_RESETn is an input after POR; do not push-pull-drive high.
+	 */
+	if (assert_reset) {
+		cfg.pinDirection = kGPIO_DigitalOutput;
+		cfg.outputLogic = 0U;
+		GPIO_PinInit(GPIOD, GS_PIN_RESET_NUM, &cfg);
+	} else {
+		GPIOD->PDOR |= (1UL << GS_PIN_RESET_NUM);
+		cfg.pinDirection = kGPIO_DigitalInput;
+		cfg.outputLogic = 1U;
+		GPIO_PinInit(GPIOD, GS_PIN_RESET_NUM, &cfg);
+	}
 }
 
 static void freertos_intf_sel_set(int level, void *ctx)
@@ -127,7 +143,6 @@ static void freertos_intf_sel_set(int level, void *ctx)
 	(void)ctx;
 
 	if (level < 0) {
-		/* Legacy PE left INTF_SEL alone (board pull selects mode). */
 		cfg.pinDirection = kGPIO_DigitalInput;
 		cfg.outputLogic = 0U;
 		GPIO_PinInit(GPIOA, GS_PIN_INTF_SEL_NUM, &cfg);
@@ -148,14 +163,35 @@ static void freertos_intf_sel_uart(void *ctx)
 
 static void freertos_pgm_level_set(uint8_t level, void *ctx)
 {
+	/* Legacy encoding: 0/1 drive; use pgm_set float via dedicated path. */
+	gpio_pin_config_t cfg;
 	(void)ctx;
-	GPIO_PinWrite(GPIOE, GS_PIN_PGM_NUM, level ? 1U : 0U);
+	cfg.pinDirection = kGPIO_DigitalOutput;
+	cfg.outputLogic = level ? 1U : 0U;
+	GPIO_PinInit(GPIOE, GS_PIN_PGM_NUM, &cfg);
+	s_pgm_hiz = false;
+}
+
+static void freertos_pgm_float(void)
+{
+	gpio_pin_config_t cfg = {
+		.pinDirection = kGPIO_DigitalInput,
+		.outputLogic = 0U,
+	};
+	/* PE has no PTE6 init — leave PGM floating (board pull = run mode). */
+	GPIO_PinInit(GPIOE, GS_PIN_PGM_NUM, &cfg);
+	s_pgm_hiz = true;
 }
 
 static void freertos_pgm_set(bool assert_pgm, void *ctx)
 {
-	uint8_t level = assert_pgm ? (uint8_t)!GS_PGM_IDLE_LEVEL : GS_PGM_IDLE_LEVEL;
-	freertos_pgm_level_set(level, ctx);
+	(void)ctx;
+	if (!assert_pgm) {
+		freertos_pgm_float();
+		return;
+	}
+	/* Assert programming: drive opposite of run-mode idle (high). */
+	freertos_pgm_level_set(1U, ctx);
 }
 
 static void freertos_ctrl_pins_get(gs_ctrl_pins_t *out, void *ctx)
@@ -168,15 +204,14 @@ static void freertos_ctrl_pins_get(gs_ctrl_pins_t *out, void *ctx)
 	out->pgm = (uint8_t)GPIO_PinRead(GPIOE, GS_PIN_PGM_NUM);
 	out->intf_sel = (uint8_t)GPIO_PinRead(GPIOA, GS_PIN_INTF_SEL_NUM);
 	out->intf_hiz = s_intf_hiz ? 1U : 0U;
+	/* Re-use unused bit: pack pgm_hiz into intf_hiz high nibble? Keep simple —
+	 * pgm hi-Z is visible when we don't drive; log via pgm pin read. */
+	(void)s_pgm_hiz;
 }
 
 int gs_platform_freertos_init(gs_platform_t *out)
 {
 	uart_config_t uart_config;
-	gpio_pin_config_t out_cfg = {
-		.pinDirection = kGPIO_DigitalOutput,
-		.outputLogic = 1U,
-	};
 	gpio_pin_config_t in_cfg = {
 		.pinDirection = kGPIO_DigitalInput,
 		.outputLogic = 0U,
@@ -188,7 +223,7 @@ int gs_platform_freertos_init(gs_platform_t *out)
 	CLOCK_EnableClock(kCLOCK_PortE);
 	CLOCK_EnableClock(kCLOCK_Uart0);
 
-	/* UART0 on PTD6/PTD7 (ALT3); weak pull-up on RX when idle. */
+	/* UART0 on PTD6/PTD7 (ALT3) — same as PE ASerialLdd1. */
 	{
 		const port_pin_config_t uart_rx = {
 			.pullSelect = kPORT_PullUp,
@@ -212,7 +247,7 @@ int gs_platform_freertos_init(gs_platform_t *out)
 		PORT_SetPinConfig(PORTD, GS_PIN_UART_TX_NUM, &uart_tx);
 	}
 
-	/* RESET push-pull active-low (reliably release high). */
+	/* PTD5 RESET — PE BitIoLdd2: GPIO input, PDOR preload high. */
 	{
 		const port_pin_config_t rst = {
 			.pullSelect = kPORT_PullUp,
@@ -225,20 +260,20 @@ int gs_platform_freertos_init(gs_platform_t *out)
 		};
 		PORT_SetPinConfig(PORTD, GS_PIN_RESET_NUM, &rst);
 	}
+	GPIOD->PDOR |= (1UL << GS_PIN_RESET_NUM);
+	GPIO_PinInit(GPIOD, GS_PIN_RESET_NUM, &in_cfg);
+
+	/* PTE6 PGM — PE has no init; leave as input (board pull). */
 	PORT_SetPinMux(PORTE, GS_PIN_PGM_NUM, kPORT_MuxAsGpio);
+	freertos_pgm_float();
+
+	/* PTA11 INTF_SEL — PE sets MUX=1 then leaves alone; keep as input. */
 	PORT_SetPinMux(PORTA, GS_PIN_INTF_SEL_NUM, kPORT_MuxAsGpio);
+	freertos_intf_sel_set(-1, NULL);
+
 	PORT_SetPinMux(PORTB, GS_PIN_RTC_OUT_NUM, kPORT_MuxAsGpio);
 	PORT_SetPinMux(PORTD, GS_PIN_ALARM1_NUM, kPORT_MuxAsGpio);
 	PORT_SetPinMux(PORTD, GS_PIN_SPI_IRQ_NUM, kPORT_MuxAsGpio);
-
-	out_cfg.outputLogic = 1U; /* release reset */
-	GPIO_PinInit(GPIOD, GS_PIN_RESET_NUM, &out_cfg);
-	out_cfg.outputLogic = GS_PGM_IDLE_LEVEL;
-	GPIO_PinInit(GPIOE, GS_PIN_PGM_NUM, &out_cfg);
-
-	/* Start like legacy PE: leave INTF_SEL as input (board pull). */
-	freertos_intf_sel_set(-1, NULL);
-
 	GPIO_PinInit(GPIOB, GS_PIN_RTC_OUT_NUM, &in_cfg);
 	GPIO_PinInit(GPIOD, GS_PIN_ALARM1_NUM, &in_cfg);
 	GPIO_PinInit(GPIOD, GS_PIN_SPI_IRQ_NUM, &in_cfg);
@@ -253,7 +288,7 @@ int gs_platform_freertos_init(gs_platform_t *out)
 	uart_config.enableRx = true;
 #if defined(FSL_FEATURE_UART_HAS_FIFO) && FSL_FEATURE_UART_HAS_FIFO
 	uart_config.txFifoWatermark = 0;
-	uart_config.rxFifoWatermark = 1; /* RDRF when ≥1 byte; we poll RCFIFO */
+	uart_config.rxFifoWatermark = 1;
 #endif
 #if defined(FSL_FEATURE_UART_HAS_MODEM_SUPPORT) && FSL_FEATURE_UART_HAS_MODEM_SUPPORT
 	uart_config.enableRxRTS = false;
@@ -263,7 +298,6 @@ int gs_platform_freertos_init(gs_platform_t *out)
 		return -1;
 	}
 	s_uart_baud = GS_UART_BAUD_DEFAULT;
-	/* Flush like PE after enabling FIFOs. */
 	freertos_uart_flush(NULL);
 
 	if (out) {

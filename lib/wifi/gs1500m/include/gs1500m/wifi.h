@@ -53,7 +53,8 @@ gs_msg_id_t gs_wifi_init(uint32_t ready_timeout_ms);
 typedef struct {
 	uint32_t baud;       /**< Host UART baud that answered AT (0 if none) */
 	int intf_sel;        /**< -1=float, 0, or 1 */
-	uint8_t pgm_idle;    /**< PGM level held through reset (0=run, 1=program) */
+	int8_t pgm_idle;     /**< -1=float (PE), 0=drive low, 1=drive high */
+	bool hw_reset;       /**< Pulsed PTD5 during this attempt */
 	bool saw_boot;       /**< Saw Serial2WiFi / APP Reset banner */
 	uint32_t rx_bytes;   /**< Parser RX count after last probe */
 	gs_ctrl_pins_t pins; /**< Control GPIO sample after last attempt */

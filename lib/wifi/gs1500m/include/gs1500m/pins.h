@@ -50,8 +50,9 @@
 #endif
 
 /*
- * PGM / UART1_RTS (GPIO27): HIGH during reset ⇒ flash-download (programming)
- * mode; module will not run Serial2WiFi AT. Normal boot requires PGM LOW.
+ * PGM / UART1_RTS (GPIO27): HIGH during reset ⇒ flash-download mode.
+ * Legacy PE never initializes PTE6 — leave floating (board pull = run).
+ * GS_PGM_IDLE_LEVEL is only used when explicitly driving the pin.
  */
 #ifndef GS_PGM_IDLE_LEVEL
 #define GS_PGM_IDLE_LEVEL 0U

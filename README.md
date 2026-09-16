@@ -63,7 +63,7 @@ A second firmware per OS prints the same blink log over **SEGGER RTT** (J-Link S
 
 ### GS1500M WiFi (UART AT)
 
-Transport is **UART0 @ 115200 8N1** (PTD6 RX / PTD7 TX). Control pins: **PTD5** reset (active-low), **PTE6** PGM (**idle low** — high at reset enters flash-download), **PTA11** INTF_SEL (auto-tried float/1/0). SPI pins PTD10–14 are reserved and unused. See [`docs/gs1500m_pins.md`](docs/gs1500m_pins.md).
+Transport is **UART0 @ 115200 8N1** (PTD6 RX / PTD7 TX). Control pins match legacy PE: **PTD5** reset (GPIO input idle; optional low pulse), **PTE6** PGM (**uninitialized / floating** — PE has no PTE6 code), **PTA11** INTF_SEL (left alone, auto-tried). See [`docs/gs1500m_pins.md`](docs/gs1500m_pins.md).
 
 Portable library: `lib/wifi/gs1500m` (AT parser, join, sockets, SSL, HTTP, MQTT byte-pipe, Limited AP, user SM) with FreeRTOS and Zephyr HALs under `port/`.
 
