@@ -166,12 +166,17 @@ static void stub_intf_sel_uart(void *vctx)
 	}
 }
 
-static void stub_pgm_set(bool assert_pgm, void *vctx)
+static void stub_pgm_level_set(uint8_t level, void *vctx)
 {
 	gs_stub_ctx_t *ctx = (gs_stub_ctx_t *)vctx;
 	if (ctx) {
-		ctx->last_pgm_assert = assert_pgm;
+		ctx->last_pgm_assert = (level != 0U);
 	}
+}
+
+static void stub_pgm_set(bool assert_pgm, void *vctx)
+{
+	stub_pgm_level_set(assert_pgm ? 1U : 0U, vctx);
 }
 
 static void stub_intf_sel_set(int level, void *vctx)
@@ -228,6 +233,7 @@ void gs_stub_install(gs_stub_ctx_t *ctx, gs_platform_t *out)
 	out->intf_sel_uart = stub_intf_sel_uart;
 	out->intf_sel_set = stub_intf_sel_set;
 	out->pgm_set = stub_pgm_set;
+	out->pgm_level_set = stub_pgm_level_set;
 	out->ctrl_pins_get = stub_ctrl_pins_get;
 	out->ctx = ctx;
 	gs_platform_set(out);

@@ -282,13 +282,14 @@ const gs_wifi_init_diag_t *gs_wifi_last_init_diag(void)
 	return &s_init_diag;
 }
 
-static void diag_sample(uint32_t baud, int intf_sel, bool saw_boot)
+static void diag_sample(uint32_t baud, int intf_sel, uint8_t pgm_idle, bool saw_boot)
 {
 	const gs_platform_t *p = gs_platform_get();
 
 	memset(&s_init_diag, 0, sizeof(s_init_diag));
 	s_init_diag.baud = baud;
 	s_init_diag.intf_sel = intf_sel;
+	s_init_diag.pgm_idle = pgm_idle;
 	s_init_diag.saw_boot = saw_boot;
 	s_init_diag.rx_bytes = gs_at_rx_byte_count();
 	if (p && p->ctrl_pins_get) {
@@ -329,7 +330,8 @@ static gs_msg_id_t probe_at(uint32_t timeout_ms)
 	return id;
 }
 
-static gs_msg_id_t try_link_once(uint32_t baud, int intf_sel, uint32_t boot_ms)
+static gs_msg_id_t try_link_once(uint32_t baud, int intf_sel, uint8_t pgm_idle,
+				 uint32_t boot_ms)
 {
 	const gs_platform_t *p = gs_platform_get();
 	bool saw_boot;
@@ -349,9 +351,19 @@ static gs_msg_id_t try_link_once(uint32_t baud, int intf_sel, uint32_t boot_ms)
 	} else if (p->intf_sel_uart && intf_sel == (int)GS_INTF_SEL_UART_LEVEL) {
 		p->intf_sel_uart(p->ctx);
 	}
-	if (p->pgm_set) {
-		p->pgm_set(false, p->ctx);
+
+	/*
+	 * PGM is sampled at reset: HIGH ⇒ flash-download mode (no AT).
+	 * Hold the desired idle level before and through the reset pulse.
+	 */
+	if (p->pgm_level_set) {
+		p->pgm_level_set(pgm_idle, p->ctx);
+	} else if (p->pgm_set) {
+		/* Map raw level onto assert/idle API using GS_PGM_IDLE_LEVEL. */
+		p->pgm_set(pgm_idle != GS_PGM_IDLE_LEVEL, p->ctx);
 	}
+	delay_ms(20);
+
 	if (p->reset_set) {
 		p->reset_set(true, p->ctx);
 		delay_ms(200);
@@ -365,7 +377,6 @@ static gs_msg_id_t try_link_once(uint32_t baud, int intf_sel, uint32_t boot_ms)
 
 	id = probe_at(1500U);
 	if (id != GS_MSG_OK) {
-		/* Soft-reset only helps if the UART already matches. */
 		if (gs_at_rx_byte_count() > 0U) {
 			(void)gs_wifi_soft_reset();
 			delay_ms(1000);
@@ -374,9 +385,9 @@ static gs_msg_id_t try_link_once(uint32_t baud, int intf_sel, uint32_t boot_ms)
 		}
 	}
 
-	diag_sample((id == GS_MSG_OK) ? baud : 0U, intf_sel, saw_boot);
+	diag_sample((id == GS_MSG_OK) ? baud : 0U, intf_sel, pgm_idle, saw_boot);
 	if (id != GS_MSG_OK) {
-		s_init_diag.baud = baud; /* remember last tried baud */
+		s_init_diag.baud = baud;
 		s_init_diag.rx_bytes = gs_at_rx_byte_count();
 	}
 	return id;
@@ -390,7 +401,6 @@ static gs_msg_id_t maybe_switch_to_115200(uint32_t current_baud)
 	if (current_baud == GS_UART_BAUD_DEFAULT) {
 		return GS_MSG_OK;
 	}
-	/* Module ATB takes effect immediately; then retune host UART. */
 	id = gs_at_send_cmd("ATB=115200\r\n", 2000U);
 	if (id != GS_MSG_OK) {
 		return id;
@@ -410,9 +420,12 @@ static gs_msg_id_t maybe_switch_to_115200(uint32_t current_baud)
 gs_msg_id_t gs_wifi_init(uint32_t ready_timeout_ms)
 {
 	const gs_platform_t *p = gs_platform_get();
+	/* PGM=0 first (run mode). HIGH at reset = programming / no AT. */
+	static const uint8_t pgm_idles[] = { 0U, 1U };
 	static const uint32_t bauds[] = { 115200U, 9600U, 57600U };
-	static const int intf_modes[] = { -1, 1, 0 }; /* float, high, low */
+	static const int intf_modes[] = { -1, 1, 0 };
 	uint32_t boot_ms;
+	size_t pi;
 	size_t bi;
 	size_t ii;
 	gs_msg_id_t id = GS_MSG_TIMEOUT;
@@ -426,19 +439,23 @@ gs_msg_id_t gs_wifi_init(uint32_t ready_timeout_ms)
 	if (boot_ms < 800U) {
 		boot_ms = 800U;
 	}
-	if (boot_ms > 2500U) {
-		boot_ms = 2500U;
+	if (boot_ms > 2000U) {
+		boot_ms = 2000U;
 	}
 
 	memset(&s_init_diag, 0, sizeof(s_init_diag));
 	s_init_diag.intf_sel = -1;
+	s_init_diag.pgm_idle = GS_PGM_IDLE_LEVEL;
 
-	for (bi = 0; bi < sizeof(bauds) / sizeof(bauds[0]); bi++) {
-		for (ii = 0; ii < sizeof(intf_modes) / sizeof(intf_modes[0]); ii++) {
-			id = try_link_once(bauds[bi], intf_modes[ii], boot_ms);
-			if (id == GS_MSG_OK) {
-				ok_baud = bauds[bi];
-				goto linked;
+	for (pi = 0; pi < sizeof(pgm_idles) / sizeof(pgm_idles[0]); pi++) {
+		for (bi = 0; bi < sizeof(bauds) / sizeof(bauds[0]); bi++) {
+			for (ii = 0; ii < sizeof(intf_modes) / sizeof(intf_modes[0]); ii++) {
+				id = try_link_once(bauds[bi], intf_modes[ii],
+						   pgm_idles[pi], boot_ms);
+				if (id == GS_MSG_OK) {
+					ok_baud = bauds[bi];
+					goto linked;
+				}
 			}
 		}
 	}

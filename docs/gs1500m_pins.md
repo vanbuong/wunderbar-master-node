@@ -7,7 +7,7 @@ UART AT path (primary — matches legacy `WunderBar_WiFi` firmware). SPI pins ar
 | `WIFI_UART_TX_LPC_RX` | **PTD6** | MCU UART0 RX |
 | `WIFI_UART_RX_LPC_TX` | **PTD7** | MCU UART0 TX |
 | `WIFI_!RESET` | **PTD5** | Active-low reset (open-drain pulse; module ready when released) |
-| `WIFI_PGM` | **PTE6** | Programming mode — keep **deasserted** for normal boot |
+| `WIFI_PGM` | **PTE6** | Programming (UART1_RTS/GPIO27) — must be **LOW** for normal boot; **HIGH** at reset enters flash-download mode |
 | `WIFI_INTF_SEL` | **PTA11** | Interface select — drive UART mode at boot |
 | `WIFI_RTC_OUT` | **PTB16** | Module RTC out (input, optional) |
 | `WIFI_ALARM1` | **PTD9** | Alarm GPIO (input) |
@@ -19,4 +19,6 @@ UART AT path (primary — matches legacy `WunderBar_WiFi` firmware). SPI pins ar
 **INTF_SEL polarity:** bring-up tries **float (legacy)**, then **1**, then **0**. GainSpan UART is typically high / SPI low; Serial2WiFi firmware may ignore the pin. Override `GS_INTF_SEL_UART_LEVEL` only if you need a fixed drive level outside auto-try.
 
 **Baud:** factory default is often **9600**. Init tries 115200, then 9600, then 57600. Framing-error bytes are kept (not discarded) so a baud mismatch still shows `rx_bytes>0`. After a 9600 link, firmware issues `ATB=115200` and retunes the host UART.
+
+**PGM:** GainSpan samples UART1_RTS/GPIO27 at reset — **high = programming / flash-download**, **low = run Serial2WiFi**. Default idle is `0`. Bring-up also retries the opposite polarity.
 

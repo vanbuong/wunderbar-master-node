@@ -146,15 +146,20 @@ static void zephyr_intf_sel_uart(void *ctx)
 	zephyr_intf_sel_set((int)GS_INTF_SEL_UART_LEVEL, ctx);
 }
 
-static void zephyr_pgm_set(bool assert_pgm, void *ctx)
+static void zephyr_pgm_level_set(uint8_t level, void *ctx)
 {
 	(void)ctx;
 	if (!gpio_is_ready_dt(&s_pgm)) {
 		return;
 	}
-	(void)gpio_pin_set_raw(s_pgm.port, s_pgm.pin,
-			       assert_pgm ? (int)!GS_PGM_IDLE_LEVEL
-					  : (int)GS_PGM_IDLE_LEVEL);
+	(void)gpio_pin_configure(s_pgm.port, s_pgm.pin, GPIO_OUTPUT);
+	(void)gpio_pin_set_raw(s_pgm.port, s_pgm.pin, level ? 1 : 0);
+}
+
+static void zephyr_pgm_set(bool assert_pgm, void *ctx)
+{
+	uint8_t level = assert_pgm ? (uint8_t)!GS_PGM_IDLE_LEVEL : GS_PGM_IDLE_LEVEL;
+	zephyr_pgm_level_set(level, ctx);
 }
 
 static void zephyr_ctrl_pins_get(gs_ctrl_pins_t *out, void *ctx)
@@ -205,6 +210,7 @@ int gs_platform_zephyr_init(gs_platform_t *out)
 		out->intf_sel_uart = zephyr_intf_sel_uart;
 		out->intf_sel_set = zephyr_intf_sel_set;
 		out->pgm_set = zephyr_pgm_set;
+		out->pgm_level_set = zephyr_pgm_level_set;
 		out->ctrl_pins_get = zephyr_ctrl_pins_get;
 		out->ctx = NULL;
 		gs_platform_set(out);

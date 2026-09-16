@@ -51,6 +51,8 @@ typedef struct gs_platform {
 	void (*intf_sel_set)(int level, void *ctx);
 	/** Drive WIFI_PGM idle (normal boot) or assert for programming. */
 	void (*pgm_set)(bool assert_pgm, void *ctx);
+	/** Optional: drive raw PGM level (0/1) — used by multi-strategy bring-up. */
+	void (*pgm_level_set)(uint8_t level, void *ctx);
 	/** Optional: sample control pins for logging. */
 	void (*ctrl_pins_get)(gs_ctrl_pins_t *out, void *ctx);
 	void *ctx;

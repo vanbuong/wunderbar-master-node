@@ -162,13 +162,13 @@ static void prvLogModuleInfo(void)
 	const gs_wifi_init_diag_t *d = gs_wifi_last_init_diag();
 
 	if (d) {
-		WB_LOGI("wifi link: baud=%u intf=%s saw_boot=%d rx=%u rst=%u pgm=%u",
+		WB_LOGI("wifi link: baud=%u intf=%s pgm=%u saw_boot=%d rx=%u rst=%u",
 			(unsigned)d->baud,
 			d->intf_sel < 0 ? "float" : (d->intf_sel ? "1" : "0"),
+			(unsigned)d->pgm_idle,
 			d->saw_boot ? 1 : 0,
 			(unsigned)d->rx_bytes,
-			(unsigned)d->pins.reset,
-			(unsigned)d->pins.pgm);
+			(unsigned)d->pins.reset);
 	}
 	if (!mi) {
 		return;
@@ -250,10 +250,11 @@ static void prvWifiTask(void *pvParameters)
 					(unsigned)gs_at_rx_byte_count(),
 					(partial && partial[0]) ? partial : "");
 				if (d) {
-					WB_LOGE("init try baud=%u intf=%s saw_boot=%d rx=%u rst=%u pgm=%u intf_pin=%u hiz=%u",
+					WB_LOGE("init try baud=%u intf=%s pgm_idle=%u saw_boot=%d rx=%u rst=%u pgm_pin=%u intf_pin=%u hiz=%u",
 						(unsigned)d->baud,
 						d->intf_sel < 0 ? "float" :
 							(d->intf_sel ? "1" : "0"),
+						(unsigned)d->pgm_idle,
 						d->saw_boot ? 1 : 0,
 						(unsigned)d->rx_bytes,
 						(unsigned)d->pins.reset,

@@ -145,11 +145,16 @@ static void freertos_intf_sel_uart(void *ctx)
 	freertos_intf_sel_set((int)GS_INTF_SEL_UART_LEVEL, ctx);
 }
 
-static void freertos_pgm_set(bool assert_pgm, void *ctx)
+static void freertos_pgm_level_set(uint8_t level, void *ctx)
 {
 	(void)ctx;
+	GPIO_PinWrite(GPIOE, GS_PIN_PGM_NUM, level ? 1U : 0U);
+}
+
+static void freertos_pgm_set(bool assert_pgm, void *ctx)
+{
 	uint8_t level = assert_pgm ? (uint8_t)!GS_PGM_IDLE_LEVEL : GS_PGM_IDLE_LEVEL;
-	GPIO_PinWrite(GPIOE, GS_PIN_PGM_NUM, level);
+	freertos_pgm_level_set(level, ctx);
 }
 
 static void freertos_ctrl_pins_get(gs_ctrl_pins_t *out, void *ctx)
@@ -258,6 +263,7 @@ int gs_platform_freertos_init(gs_platform_t *out)
 		out->intf_sel_uart = freertos_intf_sel_uart;
 		out->intf_sel_set = freertos_intf_sel_set;
 		out->pgm_set = freertos_pgm_set;
+		out->pgm_level_set = freertos_pgm_level_set;
 		out->ctrl_pins_get = freertos_ctrl_pins_get;
 		out->ctx = NULL;
 		gs_platform_set(out);

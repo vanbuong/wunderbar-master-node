@@ -49,9 +49,12 @@
 #define GS_INTF_SEL_UART_LEVEL 1U
 #endif
 
-/* PGM idle (normal boot) level — deasserted high on this PCB. */
+/*
+ * PGM / UART1_RTS (GPIO27): HIGH during reset ⇒ flash-download (programming)
+ * mode; module will not run Serial2WiFi AT. Normal boot requires PGM LOW.
+ */
 #ifndef GS_PGM_IDLE_LEVEL
-#define GS_PGM_IDLE_LEVEL 1U
+#define GS_PGM_IDLE_LEVEL 0U
 #endif
 
 #endif /* GS1500M_PINS_H */
