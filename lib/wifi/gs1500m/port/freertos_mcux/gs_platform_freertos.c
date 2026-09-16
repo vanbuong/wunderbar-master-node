@@ -37,6 +37,16 @@ static int freertos_uart_write(const uint8_t *data, size_t len, void *ctx)
 	return (int)len;
 }
 
+static void freertos_uart_clear_errors(void)
+{
+	uint32_t flags = UART_GetStatusFlags(GS_UART);
+	uint32_t err = flags & (kUART_RxOverrunFlag | kUART_NoiseErrorFlag |
+				kUART_FramingErrorFlag | kUART_ParityErrorFlag);
+	if (err != 0U) {
+		(void)UART_ClearStatusFlags(GS_UART, err);
+	}
+}
+
 static int freertos_uart_read(uint8_t *data, size_t max_len, uint32_t block_ms,
 			      void *ctx)
 {
@@ -50,6 +60,7 @@ static int freertos_uart_read(uint8_t *data, size_t max_len, uint32_t block_ms,
 	}
 
 	while (n < max_len) {
+		freertos_uart_clear_errors();
 		if (UART_GetStatusFlags(GS_UART) & kUART_RxDataRegFullFlag) {
 			data[n++] = UART_ReadByte(GS_UART);
 			continue;
@@ -68,6 +79,7 @@ static int freertos_uart_read(uint8_t *data, size_t max_len, uint32_t block_ms,
 static void freertos_uart_flush(void *ctx)
 {
 	(void)ctx;
+	freertos_uart_clear_errors();
 	while (UART_GetStatusFlags(GS_UART) & kUART_RxDataRegFullFlag) {
 		(void)UART_ReadByte(GS_UART);
 	}
@@ -123,14 +135,34 @@ int gs_platform_freertos_init(gs_platform_t *out)
 	CLOCK_EnableClock(kCLOCK_PortE);
 	CLOCK_EnableClock(kCLOCK_Uart0);
 
-	/* UART0 on PTD6/PTD7 (ALT3). */
-	PORT_SetPinMux(PORTD, GS_PIN_UART_RX_NUM, kPORT_MuxAlt3);
-	PORT_SetPinMux(PORTD, GS_PIN_UART_TX_NUM, kPORT_MuxAlt3);
+	/* UART0 on PTD6/PTD7 (ALT3); weak pull-up on RX when idle. */
+	{
+		const port_pin_config_t uart_rx = {
+			.pullSelect = kPORT_PullUp,
+			.slewRate = kPORT_FastSlewRate,
+			.passiveFilterEnable = kPORT_PassiveFilterDisable,
+			.openDrainEnable = kPORT_OpenDrainDisable,
+			.driveStrength = kPORT_LowDriveStrength,
+			.mux = kPORT_MuxAlt3,
+			.lockRegister = kPORT_UnlockRegister,
+		};
+		const port_pin_config_t uart_tx = {
+			.pullSelect = kPORT_PullDisable,
+			.slewRate = kPORT_FastSlewRate,
+			.passiveFilterEnable = kPORT_PassiveFilterDisable,
+			.openDrainEnable = kPORT_OpenDrainDisable,
+			.driveStrength = kPORT_LowDriveStrength,
+			.mux = kPORT_MuxAlt3,
+			.lockRegister = kPORT_UnlockRegister,
+		};
+		PORT_SetPinConfig(PORTD, GS_PIN_UART_RX_NUM, &uart_rx);
+		PORT_SetPinConfig(PORTD, GS_PIN_UART_TX_NUM, &uart_tx);
+	}
 
-	/* RESET as open-drain (active-low); external pull-up when released. */
+	/* RESET open-drain + internal pull-up (active-low; release → high). */
 	{
 		const port_pin_config_t od = {
-			.pullSelect = kPORT_PullDisable,
+			.pullSelect = kPORT_PullUp,
 			.slewRate = kPORT_FastSlewRate,
 			.passiveFilterEnable = kPORT_PassiveFilterDisable,
 			.openDrainEnable = kPORT_OpenDrainEnable,
@@ -150,6 +182,7 @@ int gs_platform_freertos_init(gs_platform_t *out)
 	GPIO_PinInit(GPIOD, GS_PIN_RESET_NUM, &out_cfg);
 	out_cfg.outputLogic = GS_PGM_IDLE_LEVEL;
 	GPIO_PinInit(GPIOE, GS_PIN_PGM_NUM, &out_cfg);
+	/* UART mode = high (GS_INTF_SEL_UART_LEVEL); must be before reset. */
 	out_cfg.outputLogic = GS_INTF_SEL_UART_LEVEL;
 	GPIO_PinInit(GPIOA, GS_PIN_INTF_SEL_NUM, &out_cfg);
 
@@ -161,7 +194,10 @@ int gs_platform_freertos_init(gs_platform_t *out)
 	uart_config.baudRate_Bps = GS_UART_BAUD_DEFAULT;
 	uart_config.enableTx = true;
 	uart_config.enableRx = true;
-	(void)UART_Init(GS_UART, &uart_config, gs_uart_src_hz());
+	if (UART_Init(GS_UART, &uart_config, gs_uart_src_hz()) != kStatus_Success) {
+		return -1;
+	}
+	freertos_uart_clear_errors();
 
 
 	if (out) {

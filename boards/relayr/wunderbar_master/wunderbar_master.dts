@@ -55,8 +55,9 @@
 	};
 
 	/*
-	 * GS1500M control GPIOs. INTF_SEL UART polarity defaults to logical 0
-	 * (see GS_INTF_SEL_UART_LEVEL). SPI PTD10–14 reserved / unused by AT.
+	 * GS1500M control GPIOs. INTF_SEL UART polarity defaults to logical 1
+	 * (GainSpan UART=high / SPI=low; see GS_INTF_SEL_UART_LEVEL).
+	 * SPI PTD10–14 reserved / unused by AT.
 	 */
 	wifi_gs1500m {
 		wifi_reset: wifi_reset {
@@ -72,7 +73,7 @@
 		wifi_intf_sel: wifi_intf_sel {
 			gpios = <&gpioa 11 GPIO_ACTIVE_HIGH>;
 			label = "WIFI_INTF_SEL";
-			intf-sel-uart-level = <0>;
+			intf-sel-uart-level = <1>;
 		};
 
 		wifi_rtc_out: wifi_rtc_out {

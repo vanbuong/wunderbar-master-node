@@ -41,10 +41,12 @@
 
 /*
  * Drive level that selects UART mode on INTF_SEL.
- * Flip to 1 if a board revision uses the opposite sense.
+ * GainSpan TWR-WIFI-GS1500M: SPI=low, UART=high. Legacy PE left this pin
+ * alone (board pull-up → UART); driving low forces SPI and yields empty AT RX.
+ * Override to 0 only if a PCB revision needs the opposite sense.
  */
 #ifndef GS_INTF_SEL_UART_LEVEL
-#define GS_INTF_SEL_UART_LEVEL 0U
+#define GS_INTF_SEL_UART_LEVEL 1U
 #endif
 
 /* PGM idle (normal boot) level — deasserted high on this PCB. */

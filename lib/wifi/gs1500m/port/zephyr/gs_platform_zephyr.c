@@ -29,7 +29,7 @@ static const struct gpio_dt_spec s_intf =
 	GPIO_DT_SPEC_GET_OR(DT_ALIAS(wifi_intf_sel), gpios, { 0 });
 
 #ifndef GS_INTF_SEL_UART_LEVEL
-#define GS_INTF_SEL_UART_LEVEL 0U
+#define GS_INTF_SEL_UART_LEVEL 1U
 #endif
 
 static int zephyr_uart_write(const uint8_t *data, size_t len, void *ctx)

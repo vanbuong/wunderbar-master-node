@@ -42,8 +42,8 @@ typedef struct {
 
 /**
  * Bring-up sequence:
- * INTF_SEL UART → PGM idle → HW reset pulse → wait ready →
- * flush → AT+RESET → ATE0 → AT+BDATA=1 → radio on.
+ * INTF_SEL UART → PGM idle → HW reset pulse → wait ready (≥2s) →
+ * flush → AT probe (optional AT+RESET) → ATE0 → AT+BDATA=1 → radio on.
  */
 gs_msg_id_t gs_wifi_init(uint32_t ready_timeout_ms);
 

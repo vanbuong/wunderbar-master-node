@@ -127,6 +127,13 @@ int main(void)
 		if (st != prev) {
 			WB_LOGI("wifi SM: %s (msg=%d)", state_name(st),
 				(int)s_user.last_msg);
+			if (st == GS_USER_ERROR) {
+				WB_LOGE("last AT line: '%s'", gs_at_last_line());
+				WB_LOGE("AT rx_bytes=%u partial='%s'",
+					(unsigned)gs_at_rx_byte_count(),
+					gs_at_partial_line()[0] ? gs_at_partial_line()
+								: "");
+			}
 			prev = st;
 		}
 

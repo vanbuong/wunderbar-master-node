@@ -100,6 +100,15 @@ const char *gs_at_last_line(void);
  */
 const char *gs_at_last_info_line(void);
 
+/**
+ * Bytes currently buffered in an incomplete line (no CR/LF yet).
+ * Useful when diagnosing TIMEOUT with empty last_line.
+ */
+const char *gs_at_partial_line(void);
+
+/** Total UART bytes fed to the parser since gs_at_init / flush. */
+uint32_t gs_at_rx_byte_count(void);
+
 /** Parse CONNECT cid from last response; returns GS_AT_INVALID_CID on failure. */
 uint8_t gs_at_parse_connect_cid(void);
 

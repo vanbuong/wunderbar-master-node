@@ -210,7 +210,11 @@ static void prvWifiTask(void *pvParameters)
 				(int)s_user.last_msg, prvMsgName(s_user.last_msg));
 			if (st == GS_USER_ERROR) {
 				const char *line = gs_at_last_line();
+				const char *partial = gs_at_partial_line();
 				WB_LOGE("last AT line: '%s'", line ? line : "");
+				WB_LOGE("AT rx_bytes=%u partial='%s'",
+					(unsigned)gs_at_rx_byte_count(),
+					(partial && partial[0]) ? partial : "");
 			}
 			prev = st;
 		}

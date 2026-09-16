@@ -16,4 +16,4 @@ UART AT path (primary — matches legacy `WunderBar_WiFi` firmware). SPI pins ar
 
 **Framing:** UART0, **115200 8N1**, no hardware flow control.
 
-**INTF_SEL polarity:** default UART level is `0` (`GS_INTF_SEL_UART_LEVEL`). Flip via compile define / DTS property if a PCB revision requires it.
+**INTF_SEL polarity:** default UART level is **`1`** (`GS_INTF_SEL_UART_LEVEL`) — GainSpan selects UART when high / SPI when low. Legacy firmware left the pin alone (board pull-up). Override to `0` via compile define / DTS only if a PCB revision needs the opposite sense.
