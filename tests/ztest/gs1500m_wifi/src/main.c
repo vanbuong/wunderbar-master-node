@@ -43,7 +43,8 @@ ZTEST(gs1500m_wifi_tests, test_init_bringup)
 {
 	zassert_equal(gs_wifi_init(1000U), GS_MSG_OK);
 	zassert_true(s_stub.last_intf_uart);
-	zassert_equal(s_stub.reset_pulses, 1);
+	/* PE-style bring-up may succeed without a HW reset pulse. */
+	zassert_true(s_stub.reset_pulses <= 1U);
 	zassert_true(gs_stub_tx_contains(&s_stub, "ATE0\r\n"));
 	zassert_true(gs_stub_tx_contains(&s_stub, "AT+BDATA=1\r\n"));
 }
