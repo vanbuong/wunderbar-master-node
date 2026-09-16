@@ -8,12 +8,12 @@
 
 #include "wb_time.h"
 
-#include <zephyr/kernel.h>
-#include <zephyr/sys/clock.h>
-
 #include <stdio.h>
 #include <stdint.h>
 #include <time.h>
+
+#include <zephyr/kernel.h>
+#include <zephyr/sys/clock.h>
 
 /* Same civil-time threshold as GS GETTIME plausibility (~2020). */
 #define WB_TIME_SYNCED_MIN_UNIX 1577836800UL

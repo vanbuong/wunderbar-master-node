@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026
+# SPDX-License-Identifier: Apache-2.0
+#
+# Vendor prefixes for this out-of-tree module (merged with Zephyr's list).
+
+gainspan	GainSpan Corporation / Telit
+relayr	relayr GmbH

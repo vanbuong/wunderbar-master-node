@@ -2,21 +2,20 @@
  * Copyright (c) 2026
  * SPDX-License-Identifier: Apache-2.0
  *
- * Zephyr GS1500M WiFi bring-up + optional STA join.
- * Logging: Zephyr LOG_*; wall clock: SYS_CLOCK_REALTIME (via wb_time_zephyr).
+ * Zephyr GS1500M WiFi via wifi_mgmt offload (gainspan,gs1500m-at).
  */
 
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/net_event.h>
+#include <zephyr/net/wifi_mgmt.h>
 #include <zephyr/sys/clock.h>
 
 #include <string.h>
 #include <time.h>
 
-#include "gs1500m/wifi.h"
-#include "gs1500m/user.h"
-#include "gs_platform_zephyr.h"
 #include "wb_wifi_cred.h"
 #include "wb_time.h"
 
@@ -44,8 +43,9 @@ LOG_MODULE_REGISTER(wb_wifi, LOG_LEVEL_INF);
 #endif
 
 static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
-static gs_platform_t s_gs_plat;
-static gs_user_t s_user;
+
+static K_SEM_DEFINE(wifi_done_sem, 0, 1);
+static int wifi_result;
 
 #if CONSOLE_IS_USB_CDC
 static void wait_for_dtr(void)
@@ -65,76 +65,103 @@ static void wait_for_dtr(void)
 }
 #endif
 
-static const char *state_name(gs_user_state_t st)
+static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb,
+				    uint32_t mgmt_event, struct net_if *iface)
 {
-	switch (st) {
-	case GS_USER_IDLE: return "IDLE";
-	case GS_USER_INIT: return "INIT";
-	case GS_USER_JOIN: return "JOIN";
-	case GS_USER_HTTP_TIME: return "HTTP_TIME";
-	case GS_USER_LOAD_CA: return "LOAD_CA";
-	case GS_USER_READY: return "READY";
-	case GS_USER_ERROR: return "ERROR";
-	case GS_USER_LIMITED_AP: return "LIMITED_AP";
-	case GS_USER_MQTT: return "MQTT";
-	default: return "?";
+	const struct wifi_status *st = (const struct wifi_status *)cb->info;
+
+	ARG_UNUSED(iface);
+
+	if (mgmt_event == NET_EVENT_WIFI_CONNECT_RESULT) {
+		wifi_result = st ? st->status : -1;
+		k_sem_give(&wifi_done_sem);
+	} else if (mgmt_event == NET_EVENT_WIFI_DISCONNECT_RESULT) {
+		LOG_INF("wifi disconnect event");
 	}
 }
 
-static void log_module_info(void)
+static struct net_if *wait_for_wifi_iface(int timeout_ms)
 {
-	const gs_wifi_module_info_t *mi = gs_wifi_last_module_info();
+	int64_t end = k_uptime_get() + timeout_ms;
 
-	if (!mi) {
+	while (k_uptime_get() < end) {
+		struct net_if *iface = net_if_get_first_wifi();
+
+		if (iface && net_if_is_carrier_ok(iface)) {
+			return iface;
+		}
+		k_msleep(100);
+	}
+	return NULL;
+}
+
+static int wifi_connect_sta(struct net_if *iface, const char *ssid, const char *psk)
+{
+	static struct net_mgmt_event_callback wifi_cb;
+	struct wifi_connect_req_params cnx = { 0 };
+	int ret;
+
+	if (!ssid || !ssid[0]) {
+		LOG_ERR("no SSID configured");
+		return -EINVAL;
+	}
+
+	net_mgmt_init_event_callback(&wifi_cb, wifi_mgmt_event_handler,
+				     NET_EVENT_WIFI_CONNECT_RESULT |
+					     NET_EVENT_WIFI_DISCONNECT_RESULT);
+	net_mgmt_add_event_callback(&wifi_cb);
+
+	cnx.ssid = (const uint8_t *)ssid;
+	cnx.ssid_length = strlen(ssid);
+	cnx.psk = (const uint8_t *)psk;
+	cnx.psk_length = psk ? strlen(psk) : 0U;
+	cnx.security = (psk && psk[0]) ? WIFI_SECURITY_TYPE_PSK
+				       : WIFI_SECURITY_TYPE_NONE;
+	cnx.channel = WIFI_CHANNEL_ANY;
+	cnx.band = WIFI_FREQ_BAND_UNKNOWN;
+	cnx.mfp = WIFI_MFP_OPTIONAL;
+
+	k_sem_reset(&wifi_done_sem);
+	wifi_result = -ETIMEDOUT;
+
+	LOG_INF("wifi connect ssid=%s", ssid);
+	ret = net_mgmt(NET_REQUEST_WIFI_CONNECT, iface, &cnx, sizeof(cnx));
+	if (ret) {
+		LOG_ERR("NET_REQUEST_WIFI_CONNECT failed (%d)", ret);
+		return ret;
+	}
+
+	if (k_sem_take(&wifi_done_sem, K_SECONDS(60)) != 0) {
+		LOG_ERR("connect timed out");
+		return -ETIMEDOUT;
+	}
+	if (wifi_result != 0) {
+		LOG_ERR("connect result=%d", wifi_result);
+		return wifi_result;
+	}
+	LOG_INF("wifi connected");
+	return 0;
+}
+
+static void log_iface_status(struct net_if *iface)
+{
+	struct wifi_iface_status status = { 0 };
+
+	if (net_mgmt(NET_REQUEST_WIFI_IFACE_STATUS, iface, &status,
+		     sizeof(status))) {
+		LOG_WRN("iface status request failed");
 		return;
 	}
-	LOG_INF("wifi module: name=%s mac=%s",
-		mi->name[0] ? mi->name : "(unknown)",
-		mi->mac[0] ? mi->mac : "(unknown)");
-	if (mi->app_ver[0] || mi->geps_ver[0] || mi->wlan_ver[0]) {
-		LOG_INF("wifi fw: app=%s geps=%s wlan=%s",
-			mi->app_ver[0] ? mi->app_ver : "?",
-			mi->geps_ver[0] ? mi->geps_ver : "?",
-			mi->wlan_ver[0] ? mi->wlan_ver : "?");
-	} else if (mi->version[0]) {
-		LOG_INF("wifi fw: %s", mi->version);
-	} else {
-		LOG_INF("wifi fw: (unavailable)");
-	}
-}
-
-static void log_ip(void)
-{
-	const char *ip = gs_wifi_last_ip();
-	char buf[16];
-
-	if (!ip || !ip[0]) {
-		if (gs_wifi_get_ip(buf, sizeof(buf)) == GS_MSG_OK) {
-			ip = buf;
-		}
-	}
-	LOG_INF("wifi ip: %s", (ip && ip[0]) ? ip : "(none)");
-}
-
-static void log_ntp_time(void)
-{
-	const char *t = gs_wifi_last_time_str();
-	struct timespec ts;
-
-	(void)sys_clock_gettime(SYS_CLOCK_REALTIME, &ts);
-	LOG_INF("wifi ntp: %s (unix=%u synced=%d realtime=%lld)",
-		(t && t[0]) ? t : "(sync failed)",
-		(unsigned)gs_wifi_last_unix_time(),
-		wb_time_is_synced() ? 1 : 0,
-		(long long)ts.tv_sec);
+	LOG_INF("wifi state=%d ssid=%s security=%d", status.state, status.ssid,
+		(int)status.security);
 }
 
 int main(void)
 {
-	gs_user_config_t cfg;
-	gs_user_state_t prev = GS_USER_IDLE;
+	struct net_if *iface;
+	const char *ssid;
+	const char *psk;
 
-	/* Bridge GS NTP → SYS_CLOCK_REALTIME (see wb_time_zephyr). */
 	wb_time_init(NULL, NULL);
 
 	if (!gpio_is_ready_dt(&led)) {
@@ -144,97 +171,46 @@ int main(void)
 
 #if CONSOLE_IS_USB_CDC
 	wait_for_dtr();
-	LOG_INF("WunderBar WiFi (Zephyr USB)");
+	LOG_INF("WunderBar WiFi (Zephyr USB, GS1500M offload)");
 #else
-	LOG_INF("WunderBar WiFi (Zephyr RTT)");
+	LOG_INF("WunderBar WiFi (Zephyr RTT, GS1500M offload)");
 #endif
 
-	if (gs_platform_zephyr_init(&s_gs_plat) != 0) {
-		LOG_ERR("GS platform init failed");
-		return 0;
-	}
-
-	memset(&cfg, 0, sizeof(cfg));
 	if (wb_wifi_cred_ssid()) {
-		cfg.ssid = wb_wifi_cred_ssid();
-		cfg.psk = wb_wifi_cred_psk() ? wb_wifi_cred_psk() : "";
+		ssid = wb_wifi_cred_ssid();
+		psk = wb_wifi_cred_psk() ? wb_wifi_cred_psk() : "";
 	} else {
-		cfg.ssid = CONFIG_WB_WIFI_SSID;
-		cfg.psk = CONFIG_WB_WIFI_PSK;
+		ssid = CONFIG_WB_WIFI_SSID;
+		psk = CONFIG_WB_WIFI_PSK;
 	}
-	gs_user_init(&s_user, &cfg);
 
 	{
 		const wb_wifi_cred_t *c = wb_wifi_cred_at_flash();
-		LOG_INF("cred @0x%08X raw=%02X%02X%02X%02X%02X%02X%02X%02X",
+
+		LOG_INF("cred @0x%08X valid=%d ssid=%s",
 			(unsigned)WB_WIFI_CRED_FLASH_ADDR,
-			(unsigned)(uint8_t)c->magic[0], (unsigned)(uint8_t)c->magic[1],
-			(unsigned)(uint8_t)c->magic[2], (unsigned)(uint8_t)c->magic[3],
-			(unsigned)(uint8_t)c->magic[4], (unsigned)(uint8_t)c->magic[5],
-			(unsigned)(uint8_t)c->magic[6], (unsigned)(uint8_t)c->magic[7]);
-		LOG_INF("cred valid=%d ssid=%s",
 			wb_wifi_cred_valid() ? 1 : 0,
-			(cfg.ssid && cfg.ssid[0]) ? cfg.ssid : "(none)");
+			(ssid && ssid[0]) ? ssid : "(none)");
+		ARG_UNUSED(c);
 	}
-	LOG_INF("GS1500M bring-up (ssid %s)",
-		(cfg.ssid && cfg.ssid[0]) ? cfg.ssid : "(none)");
+
+	LOG_INF("waiting for GS1500M iface...");
+	iface = wait_for_wifi_iface(30000);
+	if (!iface) {
+		LOG_ERR("WiFi iface not ready");
+		return 0;
+	}
+
+	if (wifi_connect_sta(iface, ssid, psk) == 0) {
+		log_iface_status(iface);
+		LOG_INF("realtime synced=%d unix=%u",
+			wb_time_is_synced() ? 1 : 0,
+			(unsigned)wb_time_get_unix());
+	}
 
 	while (1) {
-		gs_user_state_t st = gs_user_poll(&s_user);
-		if (st != prev) {
-			LOG_INF("wifi SM: %s (msg=%d)", state_name(st),
-				(int)s_user.last_msg);
-			if (prev == GS_USER_INIT && st != GS_USER_ERROR) {
-				const gs_wifi_init_diag_t *d = gs_wifi_last_init_diag();
-				if (d) {
-					LOG_INF("wifi link: baud=%u intf=%s pgm=%s hw_rst=%d saw_boot=%d rx=%u",
-						(unsigned)d->baud,
-						d->intf_sel < 0 ? "float" :
-							(d->intf_sel ? "1" : "0"),
-						d->pgm_idle < 0 ? "float" :
-							(d->pgm_idle ? "1" : "0"),
-						d->hw_reset ? 1 : 0,
-						d->saw_boot ? 1 : 0,
-						(unsigned)d->rx_bytes);
-				}
-			}
-			if (st == GS_USER_HTTP_TIME) {
-				log_module_info();
-				log_ip();
-			}
-			if (prev == GS_USER_HTTP_TIME && st != GS_USER_ERROR) {
-				log_ntp_time();
-			}
-			if (st == GS_USER_ERROR) {
-				const gs_wifi_init_diag_t *d = gs_wifi_last_init_diag();
-				LOG_ERR("last AT line: '%s'", gs_at_last_line());
-				LOG_ERR("AT rx_bytes=%u partial='%s'",
-					(unsigned)gs_at_rx_byte_count(),
-					gs_at_partial_line()[0] ? gs_at_partial_line()
-								: "");
-				if (d) {
-					LOG_ERR("init try baud=%u intf=%s pgm=%s hw_rst=%d saw_boot=%d rx=%u",
-						(unsigned)d->baud,
-						d->intf_sel < 0 ? "float" :
-							(d->intf_sel ? "1" : "0"),
-						d->pgm_idle < 0 ? "float" :
-							(d->pgm_idle ? "1" : "0"),
-						d->hw_reset ? 1 : 0,
-						d->saw_boot ? 1 : 0,
-						(unsigned)d->rx_bytes);
-				}
-			}
-			prev = st;
-		}
-
-		if (st == GS_USER_READY || st == GS_USER_ERROR) {
-			gs_platform_zephyr_rx_poll(50);
-			(void)gpio_pin_toggle_dt(&led);
-			k_msleep(500);
-		} else {
-			gs_platform_zephyr_rx_poll(10);
-			k_msleep(20);
-		}
+		(void)gpio_pin_toggle_dt(&led);
+		k_msleep(500);
 	}
 
 	return 0;

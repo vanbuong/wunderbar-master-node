@@ -1,0 +1,41 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig WIFI_GS1500M_AT
+	bool "GainSpan GS1500M AT WiFi offload"
+	default y
+	depends on DT_HAS_GAINSPAN_GS1500M_AT_ENABLED
+	select WIFI
+	select WIFI_OFFLOAD
+	select NET_L2_WIFI_MGMT
+	select NET_OFFLOAD
+	help
+	  UART AT offload driver for the GainSpan GS1500M Serial2WiFi module.
+	  Reuses the portable lib/wifi/gs1500m AT library for bring-up and
+	  association; exposes Zephyr wifi_mgmt. Socket offload is stubbed
+	  in v1 (-ENOTSUP).
+	  Enable the gs1500m DT node (status okay) from the application overlay.
+
+if WIFI_GS1500M_AT
+
+config WIFI_GS1500M_AT_WORKQ_STACK_SIZE
+	int "GS1500M WiFi workqueue stack size"
+	default 4096
+
+config WIFI_GS1500M_AT_WORKQ_PRIORITY
+	int "GS1500M WiFi workqueue priority"
+	default 7
+
+config WIFI_GS1500M_AT_RX_STACK_SIZE
+	int "GS1500M AT RX poll thread stack size"
+	default 1024
+
+config WIFI_GS1500M_AT_RX_PRIORITY
+	int "GS1500M AT RX poll thread priority"
+	default 8
+
+config WIFI_GS1500M_AT_INIT_TIMEOUT_MS
+	int "Module AT bring-up timeout (ms)"
+	default 8000
+
+endif # WIFI_GS1500M_AT

@@ -138,6 +138,20 @@ zephyr_udc0: &usbotg {
 	current-speed = <115200>;
 	pinctrl-0 = <&pinmux_uart0>;
 	pinctrl-names = "default";
+
+	/*
+	 * GainSpan GS1500M Serial2WiFi offload (wifi_mgmt). Control GPIOs
+	 * match board wifi_* nodes / PE bring-up.
+	 */
+	gs1500m: gs1500m {
+		compatible = "gainspan,gs1500m-at";
+		/* Enabled by apps/zephyr_wifi overlay; keep off for blinky. */
+		status = "disabled";
+		reset-gpios = <&gpiod 5 GPIO_ACTIVE_LOW>;
+		pgm-gpios = <&gpioe 6 GPIO_ACTIVE_HIGH>;
+		intf-sel-gpios = <&gpioa 11 GPIO_ACTIVE_HIGH>;
+		target-speed = <115200>;
+	};
 };
 
 &gpioa {
