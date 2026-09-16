@@ -65,6 +65,8 @@ static const char *state_name(gs_user_state_t st)
 	case GS_USER_IDLE: return "IDLE";
 	case GS_USER_INIT: return "INIT";
 	case GS_USER_JOIN: return "JOIN";
+	case GS_USER_HTTP_TIME: return "HTTP_TIME";
+	case GS_USER_LOAD_CA: return "LOAD_CA";
 	case GS_USER_READY: return "READY";
 	case GS_USER_ERROR: return "ERROR";
 	case GS_USER_LIMITED_AP: return "LIMITED_AP";
@@ -99,7 +101,30 @@ static void log_module_info(void)
 			mi->wlan_ver[0] ? mi->wlan_ver : "?");
 	} else if (mi->version[0]) {
 		WB_LOGI("wifi fw: %s", mi->version);
+	} else {
+		WB_LOGI("wifi fw: (unavailable)");
 	}
+}
+
+static void log_ip(void)
+{
+	const char *ip = gs_wifi_last_ip();
+	char buf[16];
+
+	if (!ip || !ip[0]) {
+		if (gs_wifi_get_ip(buf, sizeof(buf)) == GS_MSG_OK) {
+			ip = buf;
+		}
+	}
+	WB_LOGI("wifi ip: %s", (ip && ip[0]) ? ip : "(none)");
+}
+
+static void log_ntp_time(void)
+{
+	const char *t = gs_wifi_last_time_str();
+	WB_LOGI("wifi ntp: %s (unix=%u)",
+		(t && t[0]) ? t : "(sync failed)",
+		(unsigned)gs_wifi_last_unix_time());
 }
 
 int main(void)
@@ -158,6 +183,12 @@ int main(void)
 				(int)s_user.last_msg);
 			if (prev == GS_USER_INIT && st != GS_USER_ERROR) {
 				log_module_info();
+			}
+			if (st == GS_USER_HTTP_TIME) {
+				log_ip();
+			}
+			if (prev == GS_USER_HTTP_TIME && st != GS_USER_ERROR) {
+				log_ntp_time();
 			}
 			if (st == GS_USER_ERROR) {
 				const gs_wifi_init_diag_t *d = gs_wifi_last_init_diag();

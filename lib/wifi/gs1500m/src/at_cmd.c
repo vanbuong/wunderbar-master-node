@@ -64,12 +64,17 @@ gs_msg_id_t gs_at_wait_response(uint32_t timeout_ms)
 			case GS_MSG_CONNECT_SERVER_CLIENT:
 			case GS_MSG_DISCONNECT:
 			case GS_MSG_DISASSOCIATED:
-			case GS_MSG_APP_RESET:
-			case GS_MSG_WELCOME:
 			case GS_MSG_ESC_OK:
 			case GS_MSG_ESC_FAIL:
 			case GS_MSG_FW_UPDATE_OK:
 				return id;
+			/*
+			 * WELCOME / APP_RESET are boot banners. Do not treat them as
+			 * command terminals — AT+VER=? can include "Serial2WiFi APP"
+			 * before the version lines and OK.
+			 */
+			case GS_MSG_WELCOME:
+			case GS_MSG_APP_RESET:
 			default:
 				break;
 			}

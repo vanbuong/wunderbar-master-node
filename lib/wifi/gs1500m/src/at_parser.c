@@ -24,7 +24,17 @@ typedef enum {
 	RX_HTTP_CID,
 	RX_HTTP_LEN,
 	RX_HTTP_DATA,
-	RX_UDP_SKIP, /* simplified: skip until we can return to START on ESC E */
+	/* ESC Y: CID + IP + ' ' + PORT + '\t' + 4-digit len + data */
+	RX_UDP_BULK_CID,
+	RX_UDP_BULK_IP,
+	RX_UDP_BULK_PORT,
+	RX_UDP_BULK_LEN,
+	RX_UDP_BULK_DATA,
+	/* ESC u: CID + IP + ' ' + PORT + '\t' + data + ESC E */
+	RX_UDP_CID,
+	RX_UDP_IP,
+	RX_UDP_PORT,
+	RX_UDP_DATA,
 } rx_state_t;
 
 static gs_at_callbacks_t s_cbs;
@@ -131,6 +141,21 @@ void gs_at_set_callbacks(const gs_at_callbacks_t *cbs)
 	}
 }
 
+static bool token_at_start(const char *line, const char *tok)
+{
+	size_t n;
+
+	if (!line || !tok) {
+		return false;
+	}
+	n = strlen(tok);
+	if (strncmp(line, tok, n) != 0) {
+		return false;
+	}
+	return line[n] == '\0' || line[n] == '\r' || line[n] == '\n' ||
+	       line[n] == ' ' || line[n] == '\t';
+}
+
 gs_msg_id_t gs_at_classify_line(const char *line)
 {
 	if (!line) {
@@ -148,7 +173,8 @@ gs_msg_id_t gs_at_classify_line(const char *line)
 	if (strstr(line, "ERROR")) {
 		return GS_MSG_ERROR;
 	}
-	if (strstr(line, "OK")) {
+	/* Exact "OK" only — avoid matching version/info lines that contain "OK". */
+	if (token_at_start(line, "OK")) {
 		return GS_MSG_OK;
 	}
 	if (strstr(line, "DISASSOCIATED") || strstr(line, "Disassociation Event")) {
@@ -191,7 +217,8 @@ static gs_msg_id_t finish_line(void)
 	s_last_line[sizeof(s_last_line) - 1U] = '\0';
 
 	id = gs_at_classify_line(s_line);
-	if (id == GS_MSG_NONE && s_line_len > 0U) {
+	if ((id == GS_MSG_NONE || id == GS_MSG_WELCOME || id == GS_MSG_APP_RESET) &&
+	    s_line_len > 0U) {
 		strncpy(s_last_info_line, s_line, sizeof(s_last_info_line) - 1U);
 		s_last_info_line[sizeof(s_last_info_line) - 1U] = '\0';
 		{
@@ -268,12 +295,16 @@ gs_msg_id_t gs_at_process_byte(uint8_t b)
 			break;
 		case 'Y':
 			s_esc_kind = GS_ESC_KIND_UDP_BULK;
-			s_state = RX_UDP_SKIP;
+			s_state = RX_UDP_BULK_CID;
+			s_len_idx = 0U;
+			s_bulk_len = 0U;
+			s_bulk_got = 0U;
 			break;
 		case 'u':
 		case 'U':
 			s_esc_kind = GS_ESC_KIND_UDP;
-			s_state = RX_UDP_SKIP;
+			s_state = RX_UDP_CID;
+			s_stream_esc_pending = false;
 			break;
 		case 'O':
 			reset_to_start();
@@ -380,16 +411,89 @@ gs_msg_id_t gs_at_process_byte(uint8_t b)
 		}
 		break;
 
-	case RX_UDP_SKIP:
-		/* Minimal handling: wait for ESC E to re-sync. */
+	case RX_UDP_BULK_CID:
+		s_cid = gs_at_ascii_to_cid(b);
+		s_state = RX_UDP_BULK_IP;
+		break;
+
+	case RX_UDP_BULK_IP:
+		/* Skip IP until space. */
+		if (b == ' ') {
+			s_state = RX_UDP_BULK_PORT;
+		}
+		break;
+
+	case RX_UDP_BULK_PORT:
+		/* Skip port until tab. */
+		if (b == '\t') {
+			s_state = RX_UDP_BULK_LEN;
+			s_len_idx = 0U;
+			s_bulk_len = 0U;
+		}
+		break;
+
+	case RX_UDP_BULK_LEN:
+		if (b < '0' || b > '9') {
+			reset_to_start();
+			break;
+		}
+		s_bulk_len = (s_bulk_len * 10U) + (uint32_t)(b - '0');
+		s_len_idx++;
+		if (s_len_idx >= GS_AT_BULK_LEN_DIGITS) {
+			s_bulk_got = 0U;
+			s_state = (s_bulk_len == 0U) ? RX_START : RX_UDP_BULK_DATA;
+			if (s_bulk_len == 0U) {
+				id = GS_MSG_BULK_DATA;
+			}
+		}
+		break;
+
+	case RX_UDP_BULK_DATA:
+		emit_data_byte(b);
+		s_bulk_got++;
+		if (s_bulk_got >= s_bulk_len) {
+			emit_data_flush();
+			id = GS_MSG_BULK_DATA;
+			reset_to_start();
+		}
+		break;
+
+	case RX_UDP_CID:
+		s_cid = gs_at_ascii_to_cid(b);
+		s_state = RX_UDP_IP;
+		break;
+
+	case RX_UDP_IP:
+		if (b == ' ') {
+			s_state = RX_UDP_PORT;
+		}
+		break;
+
+	case RX_UDP_PORT:
+		if (b == '\t') {
+			s_state = RX_UDP_DATA;
+			s_stream_esc_pending = false;
+		}
+		break;
+
+	case RX_UDP_DATA:
+		if (s_stream_esc_pending) {
+			s_stream_esc_pending = false;
+			if (b == 'E') {
+				emit_data_flush();
+				id = GS_MSG_BULK_DATA;
+				reset_to_start();
+			} else {
+				emit_data_byte(GS_AT_ESC);
+				emit_data_byte(b);
+			}
+			break;
+		}
 		if (b == GS_AT_ESC) {
 			s_stream_esc_pending = true;
-		} else if (s_stream_esc_pending && b == 'E') {
-			reset_to_start();
-		} else {
-			s_stream_esc_pending = false;
-			emit_data_byte(b);
+			break;
 		}
+		emit_data_byte(b);
 		break;
 
 	default:

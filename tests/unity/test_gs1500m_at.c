@@ -119,6 +119,32 @@ void test_stream_esc_s_e(void)
 	TEST_ASSERT_EQUAL_MEMORY("xy", s_rx_buf, 2);
 }
 
+void test_udp_bulk_esc_y_frame(void)
+{
+	/* ESC Y 1 10.0.0.1 123\t0005 hello */
+	uint8_t frame[] = {
+		0x1B, 'Y', '1',
+		'1', '0', '.', '0', '.', '0', '.', '1', ' ',
+		'1', '2', '3', '\t',
+		'0', '0', '0', '5',
+		'h', 'e', 'l', 'l', 'o'
+	};
+	gs_msg_id_t id = gs_at_process_chunk(frame, sizeof(frame));
+	TEST_ASSERT_EQUAL_INT(GS_MSG_BULK_DATA, id);
+	TEST_ASSERT_EQUAL_UINT8(1, s_rx_cid);
+	TEST_ASSERT_EQUAL_INT(GS_ESC_KIND_UDP_BULK, s_rx_kind);
+	TEST_ASSERT_EQUAL_UINT(5, s_rx_len);
+	TEST_ASSERT_EQUAL_MEMORY("hello", s_rx_buf, 5);
+}
+
+void test_classify_ok_exact(void)
+{
+	TEST_ASSERT_EQUAL_INT(GS_MSG_OK, gs_at_classify_line("OK"));
+	TEST_ASSERT_EQUAL_INT(GS_MSG_NONE, gs_at_classify_line("BOOK"));
+	TEST_ASSERT_EQUAL_INT(GS_MSG_NONE,
+			      gs_at_classify_line("S2W APP VERSION=1.0"));
+}
+
 void test_esc_ok_fail(void)
 {
 	uint8_t okf[] = { 0x1B, 'O' };
@@ -158,6 +184,8 @@ int main(void)
 	RUN_TEST(test_bulk_esc_z_frame);
 	RUN_TEST(test_http_esc_h_frame);
 	RUN_TEST(test_stream_esc_s_e);
+	RUN_TEST(test_udp_bulk_esc_y_frame);
+	RUN_TEST(test_classify_ok_exact);
 	RUN_TEST(test_esc_ok_fail);
 	RUN_TEST(test_cid_and_4digit);
 	RUN_TEST(test_join_cmd_builder_format);

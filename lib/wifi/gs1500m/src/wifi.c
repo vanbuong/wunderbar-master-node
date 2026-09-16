@@ -6,14 +6,32 @@
 #include "gs1500m/wifi.h"
 #include "gs1500m/platform.h"
 #include "gs1500m/pins.h"
+#include "gs1500m/socket.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <stdint.h>
+
+#ifndef GS_WIFI_NTP_HOST
+#define GS_WIFI_NTP_HOST "pool.ntp.org"
+#endif
+#ifndef GS_WIFI_NTP_PORT
+#define GS_WIFI_NTP_PORT 123U
+#endif
+#ifndef GS_WIFI_NTP_LOCAL_PORT
+#define GS_WIFI_NTP_LOCAL_PORT 12300U
+#endif
+
+/* NTP epoch (1900) → Unix epoch (1970) */
+#define GS_NTP_UNIX_DELTA 2208988800UL
 
 static gs_wifi_module_info_t s_module_info;
 static gs_wifi_init_diag_t s_init_diag;
+static gs_wifi_status_t s_last_status;
+static char s_last_time_str[40];
+static uint32_t s_last_unix_time;
 
 static void delay_ms(uint32_t ms)
 {
@@ -137,6 +155,30 @@ static void parse_version_blob(gs_wifi_module_info_t *info, const char *blob)
 	}
 }
 
+static bool looks_like_mac_hex12(const char *s)
+{
+	size_t i;
+	if (!s || strlen(s) < 12U) {
+		return false;
+	}
+	for (i = 0; i < 12U; i++) {
+		if (!isxdigit((unsigned char)s[i])) {
+			return false;
+		}
+	}
+	return true;
+}
+
+static void format_mac_hex12(char *dst, size_t dst_len, const char *hex12)
+{
+	if (!dst || dst_len < 18U || !hex12) {
+		return;
+	}
+	snprintf(dst, dst_len, "%c%c:%c%c:%c%c:%c%c:%c%c:%c%c",
+		 hex12[0], hex12[1], hex12[2], hex12[3], hex12[4], hex12[5],
+		 hex12[6], hex12[7], hex12[8], hex12[9], hex12[10], hex12[11]);
+}
+
 static void parse_mac_blob(gs_wifi_module_info_t *info, const char *blob)
 {
 	const char *p;
@@ -145,17 +187,55 @@ static void parse_mac_blob(gs_wifi_module_info_t *info, const char *blob)
 	if (!info || !blob) {
 		return;
 	}
-	p = find_keyed_value(blob, "MAC");
+	p = find_keyed_value(blob, "MAC Address");
+	if (!p) {
+		p = find_keyed_value(blob, "MAC");
+	}
 	if (!p) {
 		p = blob;
 		while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') {
 			p++;
 		}
 	}
+	/* Skip non-hex prefix like "Address=" leftovers. */
+	while (*p && !isxdigit((unsigned char)*p)) {
+		p++;
+	}
 	copy_token(tmp, sizeof(tmp), p);
 	if (looks_like_mac(tmp)) {
 		copy_field(info->mac, sizeof(info->mac), tmp);
+	} else if (looks_like_mac_hex12(tmp)) {
+		format_mac_hex12(info->mac, sizeof(info->mac), tmp);
 	}
+}
+
+static void extract_ip_from_text(const char *text, char *ip, size_t ip_len)
+{
+	const char *keys[] = { "IP addr=", "IP Addr=", "IP=", "ip=", NULL };
+	const char *ip_src = NULL;
+	size_t k;
+
+	if (!ip || ip_len == 0U) {
+		return;
+	}
+	ip[0] = '\0';
+	if (!text) {
+		return;
+	}
+	for (k = 0; keys[k]; k++) {
+		ip_src = strstr(text, keys[k]);
+		if (ip_src) {
+			ip_src += strlen(keys[k]);
+			break;
+		}
+	}
+	if (!ip_src) {
+		return;
+	}
+	while (*ip_src == ' ' || *ip_src == '\t') {
+		ip_src++;
+	}
+	copy_token(ip, ip_len, ip_src);
 }
 
 gs_msg_id_t gs_wifi_echo(bool on)
@@ -248,8 +328,18 @@ gs_msg_id_t gs_wifi_query_module_info(gs_wifi_module_info_t *out)
 	if ((!blob || !blob[0]) && gs_at_last_info_line()[0]) {
 		blob = gs_at_last_info_line();
 	}
-	if (id_ver == GS_MSG_OK && blob && blob[0]) {
+	if (blob && blob[0]) {
 		parse_version_blob(&info, blob);
+	} else if (id_ver != GS_MSG_OK) {
+		/* Some firmwares want AT+VER=?? */
+		id_ver = gs_at_send_cmd("AT+VER=??\r\n", GS_AT_DEFAULT_CMD_TIMEOUT_MS);
+		blob = gs_at_info_accum();
+		if ((!blob || !blob[0]) && gs_at_last_info_line()[0]) {
+			blob = gs_at_last_info_line();
+		}
+		if (blob && blob[0]) {
+			parse_version_blob(&info, blob);
+		}
 	}
 
 	id_mac = gs_at_send_cmd("AT+NMAC=?\r\n", GS_AT_DEFAULT_CMD_TIMEOUT_MS);
@@ -257,7 +347,7 @@ gs_msg_id_t gs_wifi_query_module_info(gs_wifi_module_info_t *out)
 	if ((!blob || !blob[0]) && gs_at_last_info_line()[0]) {
 		blob = gs_at_last_info_line();
 	}
-	if (id_mac == GS_MSG_OK && blob && blob[0]) {
+	if (blob && blob[0]) {
 		parse_mac_blob(&info, blob);
 	}
 
@@ -266,7 +356,8 @@ gs_msg_id_t gs_wifi_query_module_info(gs_wifi_module_info_t *out)
 		*out = info;
 	}
 
-	if (id_ver == GS_MSG_OK || id_mac == GS_MSG_OK) {
+	if (id_ver == GS_MSG_OK || id_mac == GS_MSG_OK || info.version[0] ||
+	    info.mac[0]) {
 		return GS_MSG_OK;
 	}
 	return (id_ver != GS_MSG_NONE) ? id_ver : id_mac;
@@ -532,33 +623,52 @@ gs_msg_id_t gs_wifi_disconnect(void)
 gs_msg_id_t gs_wifi_get_status(gs_wifi_status_t *st)
 {
 	gs_msg_id_t id;
-	const char *line;
-	const char *ip;
+	const char *blob;
+	gs_wifi_status_t local;
 
-	if (!st) {
-		return GS_MSG_INVALID_INPUT;
-	}
-	memset(st, 0, sizeof(*st));
+	memset(&local, 0, sizeof(local));
 
 	id = gs_at_send_cmd("AT+NSTAT=?\r\n", GS_AT_DEFAULT_CMD_TIMEOUT_MS);
-	line = gs_at_last_line();
-
-	/* NSTAT prints multiple lines; last_line is the terminating OK line.
-	 * Best-effort: scan during wait would need a richer buffer. For now
-	 * try to find IP= in last_line and mark associated if OK. */
-	st->associated = (id == GS_MSG_OK);
-	ip = strstr(line, "IP=");
-	if (!ip) {
-		ip = strstr(line, "ip=");
+	blob = gs_at_info_accum();
+	if ((!blob || !blob[0]) && gs_at_last_info_line()[0]) {
+		blob = gs_at_last_info_line();
 	}
-	if (ip) {
-		ip += 3;
-		size_t i = 0;
-		while (*ip && *ip != ' ' && *ip != '\r' && *ip != '\n' &&
-		       i + 1U < sizeof(st->ip)) {
-			st->ip[i++] = *ip++;
+	if ((!blob || !blob[0])) {
+		blob = gs_at_last_line();
+	}
+
+	local.associated = (id == GS_MSG_OK);
+	extract_ip_from_text(blob, local.ip, sizeof(local.ip));
+
+	{
+		const char *v = find_keyed_value(blob, "SubNet");
+		if (!v) {
+			v = find_keyed_value(blob, "Subnet");
 		}
-		st->ip[i] = '\0';
+		if (v) {
+			copy_token(local.subnet, sizeof(local.subnet), v);
+		}
+		v = find_keyed_value(blob, "Gateway");
+		if (v) {
+			copy_token(local.gateway, sizeof(local.gateway), v);
+		}
+		v = find_keyed_value(blob, "DNS");
+		if (v) {
+			copy_token(local.dns, sizeof(local.dns), v);
+		}
+		v = find_keyed_value(blob, "SSID");
+		if (v) {
+			copy_token(local.ssid, sizeof(local.ssid), v);
+		}
+		v = find_keyed_value(blob, "MAC");
+		if (v) {
+			copy_token(local.mac, sizeof(local.mac), v);
+		}
+	}
+
+	s_last_status = local;
+	if (st) {
+		*st = local;
 	}
 	return id;
 }
@@ -572,6 +682,270 @@ gs_msg_id_t gs_wifi_get_ip(char *ip, size_t ip_len)
 		ip[ip_len - 1U] = '\0';
 	}
 	return id;
+}
+
+const char *gs_wifi_last_ip(void)
+{
+	return s_last_status.ip;
+}
+
+const char *gs_wifi_last_time_str(void)
+{
+	return s_last_time_str;
+}
+
+uint32_t gs_wifi_last_unix_time(void)
+{
+	return s_last_unix_time;
+}
+
+static void unix_to_ymdhms(uint32_t unix_sec, int *y, int *mo, int *d,
+			   int *hh, int *mm, int *ss)
+{
+	/* Civil from days (Howard Hinnant) — UTC, no leap seconds. */
+	int64_t z;
+	int64_t era;
+	unsigned doe;
+	unsigned yoe;
+	unsigned doy;
+	unsigned mp;
+	int year;
+	int month;
+	int day;
+
+	*ss = (int)(unix_sec % 60U);
+	unix_sec /= 60U;
+	*mm = (int)(unix_sec % 60U);
+	unix_sec /= 60U;
+	*hh = (int)(unix_sec % 24U);
+	unix_sec /= 24U;
+
+	z = (int64_t)unix_sec + 719468LL;
+	era = (z >= 0) ? (z / 146097LL) : ((z - 146096LL) / 146097LL);
+	doe = (unsigned)(z - era * 146097LL);
+	yoe = (doe - doe / 1460U + doe / 36524U - doe / 146096U) / 365U;
+	year = (int)(yoe) + (int)(era * 400LL);
+	doy = doe - (365U * yoe + yoe / 4U - yoe / 100U);
+	mp = (5U * doy + 2U) / 153U;
+	day = (int)(doy - (153U * mp + 2U) / 5U) + 1;
+	month = (int)(mp < 10U ? (mp + 3U) : (mp - 9U));
+	year += (month <= 2) ? 1 : 0;
+
+	*y = year;
+	*mo = month;
+	*d = day;
+}
+
+static void format_time_str(char *dst, size_t dst_len, uint32_t unix_sec)
+{
+	int y, mo, d, hh, mm, ss;
+
+	if (!dst || dst_len == 0U) {
+		return;
+	}
+	unix_to_ymdhms(unix_sec, &y, &mo, &d, &hh, &mm, &ss);
+	snprintf(dst, dst_len, "%04d-%02d-%02d %02d:%02d:%02d", y, mo, d, hh, mm,
+		 ss);
+}
+
+gs_msg_id_t gs_wifi_settime(uint32_t unix_sec)
+{
+	int y, mo, d, hh, mm, ss;
+	char date[16];
+	char time_part[16];
+
+	unix_to_ymdhms(unix_sec, &y, &mo, &d, &hh, &mm, &ss);
+	snprintf(date, sizeof(date), "%02d/%02d/%04d", d, mo, y);
+	snprintf(time_part, sizeof(time_part), "%02d:%02d:%02d", hh, mm, ss);
+	return gs_at_send_cmdf(GS_AT_DEFAULT_CMD_TIMEOUT_MS, "AT+SETTIME=%s,%s\r\n",
+			       date, time_part);
+}
+
+gs_msg_id_t gs_wifi_gettime(uint32_t *unix_sec)
+{
+	gs_msg_id_t id;
+	const char *blob;
+	const char *p;
+	uint64_t ms = 0ULL;
+
+	id = gs_at_send_cmd("AT+GETTIME=?\r\n", GS_AT_DEFAULT_CMD_TIMEOUT_MS);
+	blob = gs_at_info_accum();
+	if ((!blob || !blob[0]) && gs_at_last_info_line()[0]) {
+		blob = gs_at_last_info_line();
+	}
+	if ((!blob || !blob[0])) {
+		blob = gs_at_last_line();
+	}
+
+	if (blob && blob[0]) {
+		p = blob;
+		while (*p && !isdigit((unsigned char)*p)) {
+			p++;
+		}
+		while (isdigit((unsigned char)*p)) {
+			ms = (ms * 10ULL) + (uint64_t)(*p - '0');
+			p++;
+		}
+	}
+
+	if (ms > 0ULL) {
+		/* Module returns ms since epoch; accept seconds if small. */
+		if (ms > 100000000000ULL) {
+			s_last_unix_time = (uint32_t)(ms / 1000ULL);
+		} else {
+			s_last_unix_time = (uint32_t)ms;
+		}
+		format_time_str(s_last_time_str, sizeof(s_last_time_str),
+				s_last_unix_time);
+		if (unix_sec) {
+			*unix_sec = s_last_unix_time;
+		}
+	} else if (unix_sec) {
+		*unix_sec = 0U;
+	}
+	return id;
+}
+
+typedef struct {
+	uint8_t buf[64];
+	size_t len;
+	bool done;
+} gs_ntp_rx_t;
+
+static void ntp_on_data(uint8_t cid, gs_esc_kind_t kind, const uint8_t *data,
+			size_t len, void *user)
+{
+	gs_ntp_rx_t *rx = (gs_ntp_rx_t *)user;
+
+	(void)cid;
+	(void)kind;
+	if (!rx || !data) {
+		return;
+	}
+	while (len > 0U && rx->len < sizeof(rx->buf)) {
+		rx->buf[rx->len++] = *data++;
+		len--;
+	}
+	if (rx->len >= 48U) {
+		rx->done = true;
+	}
+}
+
+static gs_msg_id_t ntp_wait_reply(gs_ntp_rx_t *rx, uint32_t timeout_ms)
+{
+	const gs_platform_t *p = gs_platform_get();
+	uint32_t start = now_ms();
+
+	if (!p || !p->uart_read || !rx) {
+		return GS_MSG_ERROR;
+	}
+	while (!rx->done) {
+		uint8_t b;
+		int n = p->uart_read(&b, 1, 20U, p->ctx);
+		if (n > 0) {
+			(void)gs_at_process_byte(b);
+		}
+		if ((now_ms() - start) >= timeout_ms) {
+			return GS_MSG_TIMEOUT;
+		}
+		if (n <= 0) {
+			delay_ms(1);
+		}
+	}
+	return GS_MSG_OK;
+}
+
+static uint32_t ntp_extract_unix(const uint8_t pkt[48])
+{
+	uint32_t secs;
+
+	secs = ((uint32_t)pkt[40] << 24) | ((uint32_t)pkt[41] << 16) |
+	       ((uint32_t)pkt[42] << 8) | (uint32_t)pkt[43];
+	if (secs < GS_NTP_UNIX_DELTA) {
+		return 0U;
+	}
+	return secs - GS_NTP_UNIX_DELTA;
+}
+
+gs_msg_id_t gs_wifi_ntp_sync(uint32_t *unix_sec, char *time_str, size_t time_str_len)
+{
+	gs_at_callbacks_t prev;
+	gs_at_callbacks_t cbs;
+	gs_ntp_rx_t rx;
+	uint8_t cid = GS_AT_INVALID_CID;
+	uint8_t req[48];
+	gs_msg_id_t id;
+	uint32_t unix_t = 0U;
+	static const char *const hosts[] = {
+		GS_WIFI_NTP_HOST,
+		"time.google.com",
+		"162.159.200.1",
+	};
+	size_t hi;
+
+	memset(&rx, 0, sizeof(rx));
+	memset(req, 0, sizeof(req));
+	req[0] = 0x1BU; /* LI=0 VN=3 Mode=3 (client) */
+
+	/* Preserve any existing callbacks (apps rarely set them during bring-up). */
+	prev = (gs_at_callbacks_t){ 0 };
+	cbs.on_data = ntp_on_data;
+	cbs.on_line = NULL;
+	cbs.user = &rx;
+	gs_at_set_callbacks(&cbs);
+
+	id = GS_MSG_ERROR;
+	for (hi = 0; hi < sizeof(hosts) / sizeof(hosts[0]); hi++) {
+		rx.len = 0;
+		rx.done = false;
+		id = gs_socket_udp_client(hosts[hi], GS_WIFI_NTP_PORT,
+					 GS_WIFI_NTP_LOCAL_PORT, &cid);
+		if (id != GS_MSG_CONNECT && id != GS_MSG_OK) {
+			continue;
+		}
+		if (cid == GS_AT_INVALID_CID) {
+			cid = 0;
+		}
+
+		id = gs_socket_send(cid, req, sizeof(req));
+		if (id != GS_MSG_OK) {
+			(void)gs_socket_close(cid);
+			continue;
+		}
+
+		id = ntp_wait_reply(&rx, 5000U);
+		(void)gs_socket_close(cid);
+		if (id == GS_MSG_OK && rx.len >= 48U) {
+			unix_t = ntp_extract_unix(rx.buf);
+			if (unix_t != 0U) {
+				break;
+			}
+		}
+		id = GS_MSG_TIMEOUT;
+	}
+
+	gs_at_set_callbacks(NULL);
+	(void)prev;
+
+	if (unix_t == 0U) {
+		if (time_str && time_str_len > 0U) {
+			time_str[0] = '\0';
+		}
+		return (id == GS_MSG_OK) ? GS_MSG_ERROR : id;
+	}
+
+	s_last_unix_time = unix_t;
+	format_time_str(s_last_time_str, sizeof(s_last_time_str), unix_t);
+	(void)gs_wifi_settime(unix_t);
+	(void)gs_wifi_gettime(NULL);
+
+	if (unix_sec) {
+		*unix_sec = s_last_unix_time ? s_last_unix_time : unix_t;
+	}
+	if (time_str && time_str_len > 0U) {
+		copy_field(time_str, time_str_len, s_last_time_str);
+	}
+	return GS_MSG_OK;
 }
 
 gs_msg_id_t gs_wifi_get_rssi(int16_t *rssi_dbm)

@@ -13,10 +13,41 @@ typedef struct {
 	size_t line_len;
 	bool in_esc;
 	bool was_reset_asserted;
+	bool esc_z;
+	char esc_kind;
+	char esc_cid;
+	char len_digits[4];
+	size_t len_idx;
+	uint32_t bulk_remain;
+	bool ntp_udp_open;
 } gs_stub_priv_t;
 
 /* Stored at end of user ctx via overlay — keep simple statics reset on install. */
 static gs_stub_priv_t s_priv;
+
+static void stub_queue_ntp_reply(gs_stub_ctx_t *ctx)
+{
+	/* ESC Y cid + IP + ' ' + port + '\t' + 0048 + 48-byte SNTP reply */
+	static const uint8_t hdr[] = {
+		0x1b, 'Y', '1',
+		'1', '6', '2', '.', '1', '5', '9', '.', '2', '0', '0', '.', '1', ' ',
+		'1', '2', '3', '\t',
+		'0', '0', '4', '8'
+	};
+	uint8_t pkt[48];
+	/* Unix 1758038400 (2025-09-16 16:00:00 UTC) + NTP delta */
+	uint32_t ntp_secs = 1758038400UL + 2208988800UL;
+
+	memset(pkt, 0, sizeof(pkt));
+	pkt[0] = 0x1C; /* server reply */
+	pkt[40] = (uint8_t)((ntp_secs >> 24) & 0xFFU);
+	pkt[41] = (uint8_t)((ntp_secs >> 16) & 0xFFU);
+	pkt[42] = (uint8_t)((ntp_secs >> 8) & 0xFFU);
+	pkt[43] = (uint8_t)(ntp_secs & 0xFFU);
+
+	gs_stub_rx_push(ctx, hdr, sizeof(hdr));
+	gs_stub_rx_push(ctx, pkt, sizeof(pkt));
+}
 
 static void stub_queue_response_for_cmd(gs_stub_ctx_t *ctx, const char *cmd)
 {
@@ -29,6 +60,9 @@ static void stub_queue_response_for_cmd(gs_stub_ctx_t *ctx, const char *cmd)
 	    strncmp(cmd, "AT+NSTCP=", 9) == 0 ||
 	    strncmp(cmd, "AT+NSUDP=", 9) == 0 ||
 	    strncmp(cmd, "AT+HTTPOPEN=", 12) == 0) {
+		if (strncmp(cmd, "AT+NCUDP=", 9) == 0 && strstr(cmd, ",123,")) {
+			s_priv.ntp_udp_open = true;
+		}
 		gs_stub_rx_push_str(ctx, "CONNECT 1\r\n");
 		return;
 	}
@@ -36,8 +70,9 @@ static void stub_queue_response_for_cmd(gs_stub_ctx_t *ctx, const char *cmd)
 		gs_stub_rx_push_str(ctx, "Serial2WiFi APP\r\nOK\r\n");
 		return;
 	}
-	if (strncmp(cmd, "AT+VER=?", 8) == 0) {
+	if (strncmp(cmd, "AT+VER=", 7) == 0) {
 		gs_stub_rx_push_str(ctx,
+				     "Serial2WiFi APP\r\n"
 				     "S2W APP VERSION=2.5.1\r\n"
 				     "S2W GEPS VERSION=2.5.1\r\n"
 				     "S2W WLAN VERSION=2.5.0\r\n"
@@ -49,11 +84,29 @@ static void stub_queue_response_for_cmd(gs_stub_ctx_t *ctx, const char *cmd)
 		return;
 	}
 	if (strncmp(cmd, "AT+NSTAT=?", 10) == 0) {
-		gs_stub_rx_push_str(ctx, "IP=192.168.1.50\r\nOK\r\n");
+		gs_stub_rx_push_str(ctx,
+				     "STATUS:ASSOCIATED\r\n"
+				     "SSID=CafeWifi\r\n"
+				     "IP addr=192.168.1.50 SubNet=255.255.255.0 "
+				     "Gateway=192.168.1.1\r\n"
+				     "OK\r\n");
+		return;
+	}
+	if (strncmp(cmd, "AT+GETTIME=?", 12) == 0) {
+		gs_stub_rx_push_str(ctx, "1758038400000\r\nOK\r\n");
+		return;
+	}
+	if (strncmp(cmd, "AT+SETTIME=", 11) == 0) {
+		gs_stub_rx_push_str(ctx, "OK\r\n");
 		return;
 	}
 	if (strncmp(cmd, "AT+WRSSI=?", 10) == 0) {
 		gs_stub_rx_push_str(ctx, "-45\r\nOK\r\n");
+		return;
+	}
+	if (strncmp(cmd, "AT+NCLOSE", 9) == 0) {
+		s_priv.ntp_udp_open = false;
+		gs_stub_rx_push_str(ctx, "OK\r\n");
 		return;
 	}
 	gs_stub_rx_push_str(ctx, "OK\r\n");
@@ -61,6 +114,46 @@ static void stub_queue_response_for_cmd(gs_stub_ctx_t *ctx, const char *cmd)
 
 static void stub_on_tx_byte(gs_stub_ctx_t *ctx, uint8_t b)
 {
+	if (s_priv.esc_z) {
+		if (s_priv.len_idx == 0U) {
+			/* CID digit */
+			s_priv.esc_cid = (char)b;
+			s_priv.len_idx = 1U;
+			return;
+		}
+		if (s_priv.len_idx < 5U) {
+			s_priv.len_digits[s_priv.len_idx - 1U] = (char)b;
+			s_priv.len_idx++;
+			if (s_priv.len_idx == 5U) {
+				s_priv.bulk_remain =
+					(uint32_t)(s_priv.len_digits[0] - '0') * 1000U +
+					(uint32_t)(s_priv.len_digits[1] - '0') * 100U +
+					(uint32_t)(s_priv.len_digits[2] - '0') * 10U +
+					(uint32_t)(s_priv.len_digits[3] - '0');
+				if (s_priv.bulk_remain == 0U) {
+					s_priv.esc_z = false;
+					s_priv.len_idx = 0U;
+					gs_stub_rx_push_str(ctx, "\x1bO");
+				}
+			}
+			return;
+		}
+		if (s_priv.bulk_remain > 0U) {
+			s_priv.bulk_remain--;
+			if (s_priv.bulk_remain == 0U) {
+				s_priv.esc_z = false;
+				s_priv.len_idx = 0U;
+				gs_stub_rx_push_str(ctx, "\x1bO");
+				if (s_priv.ntp_udp_open) {
+					stub_queue_ntp_reply(ctx);
+				}
+			}
+			return;
+		}
+		s_priv.esc_z = false;
+		return;
+	}
+
 	if (b == GS_AT_ESC) {
 		s_priv.in_esc = true;
 		return;
@@ -68,7 +161,14 @@ static void stub_on_tx_byte(gs_stub_ctx_t *ctx, uint8_t b)
 	if (s_priv.in_esc) {
 		char kind = (char)b;
 		s_priv.in_esc = false;
-		if (kind == 'Z' || kind == 'H' || kind == 'W') {
+		if (kind == 'Z') {
+			s_priv.esc_z = true;
+			s_priv.esc_kind = 'Z';
+			s_priv.len_idx = 0U;
+			s_priv.bulk_remain = 0U;
+			return;
+		}
+		if (kind == 'H' || kind == 'W') {
 			gs_stub_rx_push_str(ctx, "\x1bO");
 		}
 		return;

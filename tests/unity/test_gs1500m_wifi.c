@@ -205,7 +205,33 @@ void test_limited_ap_start_sequence(void)
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+DHCPSRVR=1\r\n"));
 }
 
-void test_user_sm_reaches_ready_without_mqtt(void)
+void test_wifi_get_status_parses_ip_addr(void)
+{
+	gs_wifi_status_t st;
+
+	TEST_ASSERT_EQUAL_INT(GS_MSG_OK, gs_wifi_get_status(&st));
+	TEST_ASSERT_TRUE(st.associated);
+	TEST_ASSERT_EQUAL_STRING("192.168.1.50", st.ip);
+	TEST_ASSERT_EQUAL_STRING("192.168.1.50", gs_wifi_last_ip());
+	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+NSTAT=?\r\n"));
+}
+
+void test_wifi_ntp_sync_sets_time(void)
+{
+	uint32_t unix_sec = 0;
+	char time_str[40];
+
+	TEST_ASSERT_EQUAL_INT(GS_MSG_OK,
+			      gs_wifi_ntp_sync(&unix_sec, time_str, sizeof(time_str)));
+	TEST_ASSERT_EQUAL_UINT(1758038400U, unix_sec);
+	TEST_ASSERT_TRUE(time_str[0] != '\0');
+	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+NCUDP="));
+	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+SETTIME="));
+	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+GETTIME=?\r\n"));
+	TEST_ASSERT_EQUAL_STRING(time_str, gs_wifi_last_time_str());
+}
+
+void test_user_sm_queries_ip_and_ntp(void)
 {
 	gs_user_t user;
 	gs_user_config_t cfg;
@@ -225,7 +251,10 @@ void test_user_sm_reaches_ready_without_mqtt(void)
 	}
 
 	TEST_ASSERT_EQUAL_INT(GS_USER_READY, st);
-	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+WA=TestSSID\r\n"));
+	TEST_ASSERT_EQUAL_STRING("192.168.1.50", gs_wifi_last_ip());
+	TEST_ASSERT_TRUE(gs_wifi_last_unix_time() != 0U);
+	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+NSTAT=?\r\n"));
+	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+GETTIME=?\r\n"));
 }
 
 void test_user_sm_lap_fallback_on_join_error(void)
@@ -277,7 +306,9 @@ int main(void)
 	RUN_TEST(test_http_open_send_get);
 	RUN_TEST(test_mqtt_pipe_open_tls_send_close);
 	RUN_TEST(test_limited_ap_start_sequence);
-	RUN_TEST(test_user_sm_reaches_ready_without_mqtt);
+	RUN_TEST(test_wifi_get_status_parses_ip_addr);
+	RUN_TEST(test_wifi_ntp_sync_sets_time);
+	RUN_TEST(test_user_sm_queries_ip_and_ntp);
 	RUN_TEST(test_user_sm_lap_fallback_on_join_error);
 	return UNITY_END();
 }

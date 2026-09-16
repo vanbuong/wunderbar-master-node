@@ -101,6 +101,32 @@ gs_msg_id_t gs_wifi_get_status(gs_wifi_status_t *st);
 gs_msg_id_t gs_wifi_get_ip(char *ip, size_t ip_len);
 gs_msg_id_t gs_wifi_get_rssi(int16_t *rssi_dbm);
 
+/** Last IP from gs_wifi_get_status / join path (may be empty). */
+const char *gs_wifi_last_ip(void);
+
+/**
+ * Query AT+GETTIME=? (ms since Unix epoch on many firmwares).
+ * Fills @p unix_sec when parse succeeds; always updates last time cache.
+ */
+gs_msg_id_t gs_wifi_gettime(uint32_t *unix_sec);
+
+/**
+ * Set module clock via AT+SETTIME=dd/mm/yyyy,HH:MM:SS from Unix seconds (UTC).
+ */
+gs_msg_id_t gs_wifi_settime(uint32_t unix_sec);
+
+/**
+ * SNTP over UDP (pool.ntp.org:123), then SETTIME + GETTIME.
+ * On success fills @p unix_sec and a UTC "YYYY-MM-DD HH:MM:SS" string.
+ */
+gs_msg_id_t gs_wifi_ntp_sync(uint32_t *unix_sec, char *time_str, size_t time_str_len);
+
+/** Last NTP/GETTIME wall-clock string (may be empty). */
+const char *gs_wifi_last_time_str(void);
+
+/** Last Unix seconds from NTP/GETTIME (0 if unknown). */
+uint32_t gs_wifi_last_unix_time(void);
+
 /** Convenience: security + PSK + DHCP + join for infrastructure STA. */
 gs_msg_id_t gs_wifi_join_wpa(const char *ssid, const char *psk);
 

@@ -185,7 +185,30 @@ static void prvLogModuleInfo(void)
 			mi->wlan_ver[0] ? mi->wlan_ver : "?");
 	} else if (mi->version[0]) {
 		WB_LOGI("wifi fw: %s", mi->version);
+	} else {
+		WB_LOGI("wifi fw: (unavailable)");
 	}
+}
+
+static void prvLogIp(void)
+{
+	const char *ip = gs_wifi_last_ip();
+	char buf[16];
+
+	if (!ip || !ip[0]) {
+		if (gs_wifi_get_ip(buf, sizeof(buf)) == GS_MSG_OK) {
+			ip = buf;
+		}
+	}
+	WB_LOGI("wifi ip: %s", (ip && ip[0]) ? ip : "(none)");
+}
+
+static void prvLogNtpTime(void)
+{
+	const char *t = gs_wifi_last_time_str();
+	WB_LOGI("wifi ntp: %s (unix=%u)",
+		(t && t[0]) ? t : "(sync failed)",
+		(unsigned)gs_wifi_last_unix_time());
 }
 
 static void prvWifiTask(void *pvParameters)
@@ -244,6 +267,12 @@ static void prvWifiTask(void *pvParameters)
 				(int)s_user.last_msg, prvMsgName(s_user.last_msg));
 			if (prev == GS_USER_INIT && st != GS_USER_ERROR) {
 				prvLogModuleInfo();
+			}
+			if (st == GS_USER_HTTP_TIME) {
+				prvLogIp();
+			}
+			if (prev == GS_USER_HTTP_TIME && st != GS_USER_ERROR) {
+				prvLogNtpTime();
 			}
 			if (st == GS_USER_ERROR) {
 				const char *line = gs_at_last_line();

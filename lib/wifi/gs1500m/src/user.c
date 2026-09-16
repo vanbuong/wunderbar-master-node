@@ -59,6 +59,7 @@ gs_user_state_t gs_user_poll(gs_user_t *u)
 		id = gs_wifi_join_wpa(u->cfg.ssid, u->cfg.psk);
 		u->last_msg = id;
 		if (id == GS_MSG_OK) {
+			(void)gs_wifi_get_status(NULL);
 			u->state = GS_USER_HTTP_TIME;
 		} else if (u->cfg.use_limited_ap_on_fail) {
 			u->state = GS_USER_LIMITED_AP;
@@ -68,8 +69,10 @@ gs_user_state_t gs_user_poll(gs_user_t *u)
 		break;
 
 	case GS_USER_HTTP_TIME:
-		/* Optional NTP-over-HTTP style time sync can be layered later.
-		 * Advance to CA / MQTT. */
+		/* SNTP over UDP, then SETTIME / GETTIME on the module. */
+		id = gs_wifi_ntp_sync(NULL, NULL, 0U);
+		u->last_msg = id;
+		/* Time sync is best-effort; continue bring-up either way. */
 		u->state = GS_USER_LOAD_CA;
 		break;
 
