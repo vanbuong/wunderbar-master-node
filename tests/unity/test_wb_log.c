@@ -7,11 +7,23 @@
 
 #include "unity.h"
 #include "wb_log.h"
+#include "wb_time.h"
 
 #include <string.h>
 
+static uint32_t s_ms;
+
+static uint32_t fake_millis(void *ctx)
+{
+	(void)ctx;
+	return s_ms;
+}
+
 void setUp(void)
 {
+	s_ms = 0;
+	wb_time_init(fake_millis, NULL);
+	wb_time_set_unix(0);
 	wb_log_stub_reset();
 	wb_log_init(wb_log_stub_backend(), WB_LOG_INFO);
 }
@@ -24,6 +36,7 @@ void test_info_emitted_at_info_level(void)
 {
 	WB_LOGI("hello %d", 42);
 	TEST_ASSERT_TRUE(wb_log_stub_contains("[I] hello 42"));
+	TEST_ASSERT_TRUE(wb_log_stub_contains("[T+"));
 	TEST_ASSERT_TRUE(wb_log_stub_contains("\n"));
 }
 
@@ -66,6 +79,17 @@ void test_null_backend_is_safe(void)
 	TEST_ASSERT_EQUAL_INT(0, wb_log_write(WB_LOG_INFO, "noop"));
 }
 
+void test_log_uses_ntp_wall_clock_after_sync(void)
+{
+	s_ms = 0;
+	wb_time_set_unix(1758038400U); /* 2025-09-16 16:00:00 */
+	s_ms = 250U;
+	wb_log_stub_reset();
+	WB_LOGI("synced");
+	TEST_ASSERT_TRUE(wb_log_stub_contains("2025-09-16 16:00:00.250"));
+	TEST_ASSERT_TRUE(wb_log_stub_contains("[I] synced"));
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -75,5 +99,6 @@ int main(void)
 	RUN_TEST(test_error_and_warn_tags);
 	RUN_TEST(test_level_getter);
 	RUN_TEST(test_null_backend_is_safe);
+	RUN_TEST(test_log_uses_ntp_wall_clock_after_sync);
 	return UNITY_END();
 }

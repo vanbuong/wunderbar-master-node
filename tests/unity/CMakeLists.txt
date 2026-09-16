@@ -38,6 +38,16 @@ target_include_directories(test_wb_log PRIVATE
   ${UNITY_PATH}/src
 )
 
+add_executable(test_wb_time
+  test_wb_time.c
+  ${WB_TIME_SOURCES}
+  ${UNITY_PATH}/src/unity.c
+)
+target_include_directories(test_wb_time PRIVATE
+  ${WB_TIME_INCLUDE_DIRS}
+  ${UNITY_PATH}/src
+)
+
 add_executable(test_gs1500m_at
   test_gs1500m_at.c
   ${GS1500M_ROOT}/src/at_parser.c
@@ -53,15 +63,18 @@ add_executable(test_gs1500m_wifi
   test_gs1500m_wifi.c
   ${ROOT}/tests/common/gs_stub_platform.c
   ${GS1500M_SOURCES}
+  ${WB_TIME_SOURCES}
   ${UNITY_PATH}/src/unity.c
 )
 target_include_directories(test_gs1500m_wifi PRIVATE
   ${ROOT}/tests/common
   ${GS1500M_INCLUDE_DIRS}
+  ${WB_TIME_INCLUDE_DIRS}
   ${UNITY_PATH}/src
 )
 
 enable_testing()
 add_test(NAME wb_log_unity COMMAND test_wb_log)
+add_test(NAME wb_time_unity COMMAND test_wb_time)
 add_test(NAME gs1500m_at_unity COMMAND test_gs1500m_at)
 add_test(NAME gs1500m_wifi_unity COMMAND test_gs1500m_wifi)

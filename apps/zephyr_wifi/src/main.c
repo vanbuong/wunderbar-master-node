@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include "wb_log.h"
+#include "wb_time.h"
 #include "gs1500m/wifi.h"
 #include "gs1500m/user.h"
 #include "gs_platform_zephyr.h"
@@ -113,9 +114,16 @@ static void log_ip(void)
 static void log_ntp_time(void)
 {
 	const char *t = gs_wifi_last_time_str();
-	WB_LOGI("wifi ntp: %s (unix=%u)",
+	WB_LOGI("wifi ntp: %s (unix=%u synced=%d)",
 		(t && t[0]) ? t : "(sync failed)",
-		(unsigned)gs_wifi_last_unix_time());
+		(unsigned)gs_wifi_last_unix_time(),
+		wb_time_is_synced() ? 1 : 0);
+}
+
+static uint32_t app_millis(void *ctx)
+{
+	(void)ctx;
+	return k_uptime_get_32();
 }
 
 int main(void)
@@ -123,6 +131,7 @@ int main(void)
 	gs_user_config_t cfg;
 	gs_user_state_t prev = GS_USER_IDLE;
 
+	wb_time_init(app_millis, NULL);
 	wb_log_init(wb_log_stdio_backend(), WB_LOG_INFO);
 
 	if (!gpio_is_ready_dt(&led)) {

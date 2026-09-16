@@ -8,6 +8,7 @@
 #include "gs1500m/ssl.h"
 #include "gs1500m/limited_ap.h"
 #include "gs1500m/http.h"
+#include "wb_time.h"
 
 #include <string.h>
 
@@ -71,13 +72,23 @@ gs_user_state_t gs_user_poll(gs_user_t *u)
 		}
 		break;
 
-	case GS_USER_HTTP_TIME:
+	case GS_USER_HTTP_TIME: {
+		uint32_t unix_sec = 0U;
 		/* SNTP over UDP, then SETTIME / GETTIME on the module. */
-		id = gs_wifi_ntp_sync(NULL, NULL, 0U);
+		id = gs_wifi_ntp_sync(&unix_sec, NULL, 0U);
 		u->last_msg = id;
+		if (id == GS_MSG_OK) {
+			if (unix_sec == 0U) {
+				unix_sec = gs_wifi_last_unix_time();
+			}
+			if (unix_sec != 0U) {
+				wb_time_set_unix(unix_sec);
+			}
+		}
 		/* Time sync is best-effort; continue bring-up either way. */
 		u->state = GS_USER_LOAD_CA;
 		break;
+	}
 
 	case GS_USER_LOAD_CA:
 		if (u->cfg.cacert_der && u->cfg.cacert_der_len > 0U &&

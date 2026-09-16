@@ -16,6 +16,7 @@
 #include "gs1500m/mqtt_pipe.h"
 #include "gs1500m/limited_ap.h"
 #include "gs1500m/user.h"
+#include "wb_time.h"
 
 #include <string.h>
 
@@ -27,6 +28,8 @@ void setUp(void)
 	gs_stub_reset(&s_stub);
 	gs_stub_install(&s_stub, &s_plat);
 	gs_at_init(NULL);
+	wb_time_init(NULL, NULL);
+	wb_time_set_unix(0);
 }
 
 void tearDown(void)
@@ -258,6 +261,7 @@ void test_user_sm_queries_ip_and_ntp(void)
 	TEST_ASSERT_EQUAL_INT(GS_USER_READY, st);
 	TEST_ASSERT_EQUAL_STRING("192.168.1.50", gs_wifi_last_ip());
 	TEST_ASSERT_TRUE(gs_wifi_last_unix_time() != 0U);
+	TEST_ASSERT_TRUE(wb_time_is_synced());
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+VER="));
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+NMAC=?\r\n"));
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+GETTIME=?\r\n"));

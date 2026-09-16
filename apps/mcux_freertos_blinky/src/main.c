@@ -11,6 +11,7 @@
 #include "board.h"
 #include "fsl_gpio.h"
 #include "wb_log.h"
+#include "wb_time.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -160,10 +161,20 @@ static void prvBlinkTask(void *pvParameters)
     }
 }
 
+static uint32_t prvMillis(void *ctx)
+{
+    (void)ctx;
+    if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
+        return (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    }
+    return 0U;
+}
+
 int main(void)
 {
     BOARD_InitHardware();
     prvLedInit();
+    wb_time_init(prvMillis, NULL);
     wb_log_init(wb_log_stdio_backend(), WB_LOG_INFO);
 
 #ifdef LOG_BACKEND_RTT

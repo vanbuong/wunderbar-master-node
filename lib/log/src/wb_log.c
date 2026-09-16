@@ -4,13 +4,14 @@
  */
 
 #include "wb_log.h"
+#include "wb_time.h"
 
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
 
 #ifndef WB_LOG_LINE_MAX
-#define WB_LOG_LINE_MAX 160
+#define WB_LOG_LINE_MAX 192
 #endif
 
 static const wb_log_backend_t *s_backend;
@@ -51,6 +52,8 @@ wb_log_level_t wb_log_get_level(void)
 int wb_log_write(wb_log_level_t level, const char *fmt, ...)
 {
 	char line[WB_LOG_LINE_MAX];
+	char ts[32];
+	int ts_len;
 	int prefix_len;
 	int body_len;
 	int total;
@@ -66,7 +69,14 @@ int wb_log_write(wb_log_level_t level, const char *fmt, ...)
 		return 0;
 	}
 
-	prefix_len = snprintf(line, sizeof(line), "[%s] ", level_tag(level));
+	ts_len = wb_time_format_log(ts, sizeof(ts));
+	if (ts_len > 0) {
+		prefix_len = snprintf(line, sizeof(line), "[%s][%s] ", ts,
+				      level_tag(level));
+	} else {
+		prefix_len = snprintf(line, sizeof(line), "[%s] ",
+				      level_tag(level));
+	}
 	if (prefix_len < 0) {
 		return 0;
 	}
@@ -75,7 +85,8 @@ int wb_log_write(wb_log_level_t level, const char *fmt, ...)
 	}
 
 	va_start(ap, fmt);
-	body_len = vsnprintf(line + prefix_len, sizeof(line) - (size_t)prefix_len, fmt, ap);
+	body_len = vsnprintf(line + prefix_len, sizeof(line) - (size_t)prefix_len,
+			     fmt, ap);
 	va_end(ap);
 
 	if (body_len < 0) {

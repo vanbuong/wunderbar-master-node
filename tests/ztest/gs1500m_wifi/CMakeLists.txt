@@ -13,6 +13,7 @@ set(GS_WIFI_TEST_SOURCES
   src/main.c
   ${WB_ROOT}/tests/common/gs_stub_platform.c
   ${GS1500M_SOURCES}
+  ${WB_TIME_SOURCES}
 )
 
 if(BOARD STREQUAL "unit_testing" OR BOARD STREQUAL "unit_testing/unit_testing")
@@ -21,6 +22,7 @@ if(BOARD STREQUAL "unit_testing" OR BOARD STREQUAL "unit_testing/unit_testing")
 
   target_include_directories(testbinary PRIVATE
     ${GS1500M_INCLUDE_DIRS}
+    ${WB_TIME_INCLUDE_DIRS}
     ${WB_ROOT}/tests/common
   )
   target_sources(testbinary PRIVATE ${GS_WIFI_TEST_SOURCES})
@@ -30,6 +32,7 @@ else()
 
   target_include_directories(app PRIVATE
     ${GS1500M_INCLUDE_DIRS}
+    ${WB_TIME_INCLUDE_DIRS}
     ${WB_ROOT}/tests/common
   )
   target_sources(app PRIVATE ${GS_WIFI_TEST_SOURCES})

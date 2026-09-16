@@ -10,6 +10,7 @@
 #include <zephyr/drivers/gpio.h>
 
 #include "wb_log.h"
+#include "wb_time.h"
 
 #if DT_HAS_CHOSEN(zephyr_console) && \
 	DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_console), zephyr_cdc_acm_uart)
@@ -29,6 +30,12 @@
 #endif
 
 static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
+
+static uint32_t app_millis(void *ctx)
+{
+	(void)ctx;
+	return k_uptime_get_32();
+}
 
 #if CONSOLE_IS_USB_CDC
 static void wait_for_dtr(void)
@@ -54,6 +61,7 @@ int main(void)
 	int ret;
 	bool on = false;
 
+	wb_time_init(app_millis, NULL);
 	wb_log_init(wb_log_stdio_backend(), WB_LOG_INFO);
 
 	if (!gpio_is_ready_dt(&led)) {

@@ -12,8 +12,11 @@
 
 set(GS1500M_ROOT "${CMAKE_CURRENT_LIST_DIR}")
 
+include(${GS1500M_ROOT}/../../time/wb_time.cmake)
+
 set(GS1500M_INCLUDE_DIRS
   ${GS1500M_ROOT}/include
+  ${WB_TIME_INCLUDE_DIRS}
 )
 
 set(GS1500M_SOURCES
