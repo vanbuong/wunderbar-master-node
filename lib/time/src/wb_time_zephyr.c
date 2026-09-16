@@ -13,6 +13,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <time.h>
 
 /* Same civil-time threshold as GS GETTIME plausibility (~2020). */
 #define WB_TIME_SYNCED_MIN_UNIX 1577836800UL
