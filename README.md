@@ -75,7 +75,7 @@ Portable library: `lib/wifi/gs1500m` (AT parser, join, sockets, SSL, HTTP, MQTT 
 
 #### Patchable SSID / PSK (no rebuild)
 
-Credentials sit in a **128-byte flash slot at `0x0007E000`** (magic `WBWIFIv1`, then SSID ≤32 and PSK ≤64). Build once, then patch the `.bin`:
+Credentials sit in a **128-byte flash slot at `0x0007E000`** (magic `WBWIFIv1`, then SSID ≤32 and PSK ≤64). Build once, then patch:
 
 ```bash
 ./scripts/build.sh freertos-wifi
@@ -84,7 +84,11 @@ Credentials sit in a **128-byte flash slot at `0x0007E000`** (magic `WBWIFIv1`, 
 ./scripts/patch_wifi_cred.py build-freertos-wifi-rtt/wunderbar_freertos_wifi.bin --show
 ```
 
-Flash the patched `.bin` / `.elf`. At runtime the demo prefers the flash slot; if SSID is empty it falls back to compile-time `WB_WIFI_SSID` / `WB_WIFI_PSK` (or Zephyr `CONFIG_WB_WIFI_*`).
+The script patches the sibling `.elf` next to the `.bin` automatically (and vice versa). **J-Link / Ozone / MCUXpresso usually flash the `.elf`**, not the `.bin` — if you only patch and flash the `.bin` while the debugger reloads an unpatched `.elf`, runtime SSID stays empty.
+
+Flash either the patched `.elf`, or the patched `.bin` at address `0x00000000`. Firmware reads the slot at absolute flash `0x7E000`. RTT should show `cred valid=1` and your SSID; `valid=0` with raw magic `FFFFFF…` means that flash word was never programmed.
+
+At runtime the demo prefers the flash slot; if SSID is empty it falls back to compile-time `WB_WIFI_SSID` / `WB_WIFI_PSK` (or Zephyr `CONFIG_WB_WIFI_*`).
 
 Optional compile-time defaults (do **not** commit secrets):
 

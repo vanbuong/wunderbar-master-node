@@ -107,9 +107,18 @@ int main(void)
 	}
 	gs_user_init(&s_user, &cfg);
 
-	WB_LOGI("cred slot @ 0x%08X magic=%s",
-		(unsigned)WB_WIFI_CRED_FLASH_ADDR,
-		wb_wifi_cred_valid() ? "ok" : "empty");
+	{
+		const wb_wifi_cred_t *c = wb_wifi_cred_at_flash();
+		WB_LOGI("cred @0x%08X raw=%02X%02X%02X%02X%02X%02X%02X%02X",
+			(unsigned)WB_WIFI_CRED_FLASH_ADDR,
+			(unsigned)(uint8_t)c->magic[0], (unsigned)(uint8_t)c->magic[1],
+			(unsigned)(uint8_t)c->magic[2], (unsigned)(uint8_t)c->magic[3],
+			(unsigned)(uint8_t)c->magic[4], (unsigned)(uint8_t)c->magic[5],
+			(unsigned)(uint8_t)c->magic[6], (unsigned)(uint8_t)c->magic[7]);
+		WB_LOGI("cred valid=%d ssid=%s",
+			wb_wifi_cred_valid() ? 1 : 0,
+			(cfg.ssid && cfg.ssid[0]) ? cfg.ssid : "(none)");
+	}
 	WB_LOGI("GS1500M bring-up (ssid %s)",
 		(cfg.ssid && cfg.ssid[0]) ? cfg.ssid : "(none)");
 

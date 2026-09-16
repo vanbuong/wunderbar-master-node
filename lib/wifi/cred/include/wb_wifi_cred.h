@@ -57,6 +57,9 @@ _Static_assert(sizeof(wb_wifi_cred_t) == WB_WIFI_CRED_SIZE,
 /** Flash-resident credential blob (section .wb_wifi_cred). */
 extern const wb_wifi_cred_t wb_wifi_cred;
 
+/** Absolute flash view of the slot (same address the patch script uses). */
+const wb_wifi_cred_t *wb_wifi_cred_at_flash(void);
+
 /** True if magic matches and ssid is non-empty. */
 bool wb_wifi_cred_valid(void);
 

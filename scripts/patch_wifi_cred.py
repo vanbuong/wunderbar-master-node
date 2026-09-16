@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Patch SSID/PSK into a WunderBar WiFi firmware image (.bin or .elf).
+"""Patch SSID/PSK into a WunderBar WiFi firmware image (.bin and/or .elf).
 
-Credentials live in a 128-byte flash slot at 0x0007E000 (default):
+Credentials live in a 128-byte flash slot at 0x0007E000:
 
   magic[8]=WBWIFIv1  ssid[33]  psk[65]  reserved[...]
+
+IMPORTANT: J-Link / MCUXpresso / Ozone usually flash the .elf, not the .bin.
+Patch BOTH, or flash the patched .bin explicitly at address 0x00000000.
 
 Examples:
   ./scripts/patch_wifi_cred.py build-freertos-wifi-rtt/wunderbar_freertos_wifi.bin \\
       --ssid MyNetwork --psk 'secret-pass'
+  # also updates sibling .elf when present
   ./scripts/patch_wifi_cred.py image.bin --show
 """
 
 from __future__ import annotations
 
 import argparse
+import struct
 import sys
 from pathlib import Path
 
@@ -59,39 +64,139 @@ def find_all_magic(blob: bytes) -> list[int]:
         start = off + 1
 
 
-def read_elf_symbol_file_offset(path: Path, symbol: str = "wb_wifi_cred") -> int | None:
-    try:
-        from elftools.elf.elffile import ELFFile  # type: ignore
-    except ImportError:
+def elf_section_file_offset(data: bytes, section_name: str = ".wb_wifi_cred") -> int | None:
+    """Return file offset of a section in a 32-bit little-endian ELF."""
+    if len(data) < 52 or data[:4] != b"\x7fELF":
+        return None
+    ei_class, ei_data = data[4], data[5]
+    if ei_class != 1 or ei_data != 1:  # ELF32 LSB only
         return None
 
-    with path.open("rb") as f:
-        elf = ELFFile(f)
-        symtab = elf.get_section_by_name(".symtab")
-        if symtab is None:
-            return None
-        for sym in symtab.iter_symbols():
-            if sym.name != symbol:
-                continue
-            addr = int(sym["st_value"])
-            for seg in elf.iter_segments():
-                if seg["p_type"] != "PT_LOAD":
-                    continue
-                vaddr = int(seg["p_vaddr"])
-                filesz = int(seg["p_filesz"])
-                if vaddr <= addr < vaddr + filesz:
-                    return int(seg["p_offset"]) + (addr - vaddr)
+    (
+        _e_type,
+        _e_machine,
+        _e_version,
+        _e_entry,
+        _e_phoff,
+        e_shoff,
+        _e_flags,
+        _e_ehsize,
+        _e_phentsize,
+        _e_phnum,
+        e_shentsize,
+        e_shnum,
+        e_shstrndx,
+    ) = struct.unpack_from("<HHIIIIIHHHHHH", data, 16)
+
+    if e_shentsize < 40 or e_shnum == 0 or e_shstrndx >= e_shnum:
+        return None
+
+    def shdr(i: int) -> tuple:
+        off = e_shoff + i * e_shentsize
+        return struct.unpack_from("<IIIIIIIIII", data, off)
+
+    # sh_name, sh_type, sh_flags, sh_addr, sh_offset, sh_size, ...
+    str_sh = shdr(e_shstrndx)
+    str_off, str_size = str_sh[4], str_sh[5]
+    strtab = data[str_off : str_off + str_size]
+
+    for i in range(e_shnum):
+        sh_name, _t, _f, sh_addr, sh_offset, sh_size, *_rest = shdr(i)
+        if sh_name >= len(strtab):
+            continue
+        end = strtab.find(b"\x00", sh_name)
+        name = strtab[sh_name:end if end >= 0 else None].decode("ascii", "replace")
+        if name == section_name and sh_size >= SLOT_SIZE:
+            if data[sh_offset : sh_offset + 8] != MAGIC and sh_addr != DEFAULT_ADDR:
+                # Still accept by name; caller verifies magic.
+                pass
+            return int(sh_offset)
     return None
 
 
-def load_image(path: Path) -> tuple[bytearray, str]:
-    data = bytearray(path.read_bytes())
-    kind = "elf" if path.suffix.lower() == ".elf" else "bin"
-    return data, kind
+def elf_symbol_file_offset(data: bytes, symbol: str = "wb_wifi_cred") -> int | None:
+    """Fallback: locate symbol via .symtab (ELF32 LE)."""
+    if len(data) < 52 or data[:4] != b"\x7fELF" or data[4] != 1 or data[5] != 1:
+        return None
+
+    (
+        _e_type,
+        _e_machine,
+        _e_version,
+        _e_entry,
+        e_phoff,
+        e_shoff,
+        _e_flags,
+        _e_ehsize,
+        e_phentsize,
+        e_phnum,
+        e_shentsize,
+        e_shnum,
+        e_shstrndx,
+    ) = struct.unpack_from("<HHIIIIIHHHHHH", data, 16)
+
+    def shdr(i: int):
+        return struct.unpack_from("<IIIIIIIIII", data, e_shoff + i * e_shentsize)
+
+    str_sh = shdr(e_shstrndx)
+    strtab = data[str_sh[4] : str_sh[4] + str_sh[5]]
+
+    symtab_off = symtab_size = ent = strtab_sym_off = None
+    for i in range(e_shnum):
+        sh_name, sh_type, _f, _a, sh_offset, sh_size, sh_link, *_r = shdr(i)
+        end = strtab.find(b"\x00", sh_name)
+        name = strtab[sh_name:end if end >= 0 else None].decode("ascii", "replace")
+        if name == ".symtab" and sh_type == 2:
+            symtab_off, symtab_size, ent = sh_offset, sh_size, 16
+            # sh_link -> .strtab
+            link = shdr(sh_link)
+            strtab_sym_off = link[4]
+        elif name == ".dynsym":
+            continue
+
+    if symtab_off is None or ent is None or strtab_sym_off is None:
+        return None
+
+    sym_str = data  # full file; offsets absolute
+    # Load sym strtab section
+    # find .strtab linked — use sh_link size from symtab's linked section
+    for i in range(e_shnum):
+        sh_name, sh_type, _f, _a, sh_offset, sh_size, *_r = shdr(i)
+        end = strtab.find(b"\x00", sh_name)
+        name = strtab[sh_name:end if end >= 0 else None].decode("ascii", "replace")
+        if name == ".strtab":
+            sym_names = data[sh_offset : sh_offset + sh_size]
+            break
+    else:
+        return None
+
+    addr = None
+    for off in range(symtab_off, symtab_off + symtab_size, ent):
+        st_name, st_value, st_size, st_info, st_other, st_shndx = struct.unpack_from(
+            "<IIIBBH", data, off
+        )
+        nend = sym_names.find(b"\x00", st_name)
+        n = sym_names[st_name:nend if nend >= 0 else None].decode("ascii", "replace")
+        if n == symbol:
+            addr = st_value
+            break
+    if addr is None:
+        return None
+
+    # Map VMA -> file via PT_LOAD
+    for i in range(e_phnum):
+        off = e_phoff + i * e_phentsize
+        p_type, p_offset, p_vaddr, _p_paddr, p_filesz, _p_memsz, _p_flags, _p_align = (
+            struct.unpack_from("<IIIIIIII", data, off)
+        )
+        if p_type != 1:  # PT_LOAD
+            continue
+        if p_vaddr <= addr < p_vaddr + p_filesz:
+            return p_offset + (addr - p_vaddr)
+    return None
 
 
-def resolve_offset(data: bytearray, path: Path, kind: str, address: int | None) -> int:
-    # Explicit address wins.
+def resolve_offset(data: bytearray, kind: str, address: int | None) -> int:
     if address is not None:
         if kind == "bin":
             off = address - FLASH_BASE
@@ -106,21 +211,20 @@ def resolve_offset(data: bytearray, path: Path, kind: str, address: int | None) 
                     f"(file offset 0x{off:X})"
                 )
             return off
-        off = read_elf_symbol_file_offset(path)
+        # ELF + address: prefer section / symbol
+        off = elf_section_file_offset(data) or elf_symbol_file_offset(data)
         if off is not None:
             return off
-        raise SystemExit(
-            "error: ELF + --address needs pyelftools (pip install pyelftools), "
-            "or omit --address to use symbol/magic"
-        )
+        raise SystemExit("error: could not map address to ELF file offset")
 
-    # ELF: prefer symbol file offset.
     if kind == "elf":
-        off = read_elf_symbol_file_offset(path)
-        if off is not None:
+        off = elf_section_file_offset(data)
+        if off is not None and data[off : off + 8] == MAGIC:
+            return off
+        off = elf_symbol_file_offset(data)
+        if off is not None and data[off : off + 8] == MAGIC:
             return off
 
-    # .bin default: fixed flash slot.
     default_off = DEFAULT_ADDR - FLASH_BASE
     if default_off + SLOT_SIZE <= len(data) and data[default_off : default_off + 8] == MAGIC:
         return default_off
@@ -129,13 +233,38 @@ def resolve_offset(data: bytearray, path: Path, kind: str, address: int | None) 
     if not hits:
         raise SystemExit("error: magic WBWIFIv1 not found in image")
     if len(hits) > 1:
+        # Prefer DEFAULT_ADDR if present
+        if default_off in hits:
+            return default_off
         print(
             f"warning: {len(hits)} magic markers at {[hex(h) for h in hits]}; "
-            f"using 0x{hits[-1]:X} (prefer rebuilding so only the cred slot has magic)",
+            f"using 0x{hits[-1]:X}",
             file=sys.stderr,
         )
         return hits[-1]
     return hits[0]
+
+
+def patch_one(path: Path, ssid: str | None, psk: str | None, show: bool, address: int | None) -> None:
+    data = bytearray(path.read_bytes())
+    kind = "elf" if path.suffix.lower() == ".elf" else "bin"
+    off = resolve_offset(data, kind, address)
+
+    if show or ssid is None:
+        s, p = unpack_slot(bytes(data[off : off + SLOT_SIZE]))
+        print(f"{path}:")
+        print(f"  offset  0x{off:X}  (flash 0x{FLASH_BASE + off if kind == 'bin' else DEFAULT_ADDR:08X})")
+        print(f"  ssid    {s!r}")
+        print(f"  psk     {p!r}")
+        return
+
+    assert psk is not None
+    slot = pack_slot(ssid, psk)
+    data[off : off + SLOT_SIZE] = slot
+    path.write_bytes(data)
+    print(f"patched {path} at file offset 0x{off:X}")
+    print(f"  ssid={ssid!r}")
+    print(f"  psk={psk!r}")
 
 
 def main() -> int:
@@ -149,41 +278,60 @@ def main() -> int:
         "--address",
         type=lambda s: int(s, 0),
         default=None,
-        help=f"Absolute flash address (default: 0x{DEFAULT_ADDR:X} for .bin)",
+        help=f"Absolute flash address for .bin (default: 0x{DEFAULT_ADDR:X})",
     )
     ap.add_argument("--show", action="store_true", help="Print current credentials and exit")
     ap.add_argument(
         "-o",
         "--output",
         type=Path,
-        help="Write patched image here (default: in-place)",
+        help="Write patched image here (default: in-place). Disables sibling auto-patch.",
+    )
+    ap.add_argument(
+        "--no-sibling",
+        action="store_true",
+        help="Do not also patch sibling .elf/.bin next to the input",
     )
     args = ap.parse_args()
 
     if not args.image.is_file():
         raise SystemExit(f"error: file not found: {args.image}")
 
-    data, kind = load_image(args.image)
-    off = resolve_offset(data, args.image, kind, args.address)
-
-    if args.show or (args.ssid is None and args.psk is None):
-        ssid, psk = unpack_slot(bytes(data[off : off + SLOT_SIZE]))
-        print(f"offset  0x{off:X}  (flash 0x{FLASH_BASE + off:08X})")
-        print(f"ssid    {ssid!r}")
-        print(f"psk     {psk!r}")
-        return 0
-
-    if args.ssid is None:
+    show = args.show or (args.ssid is None and args.psk is None)
+    if not show and args.ssid is None:
         raise SystemExit("error: --ssid is required unless using --show")
     psk = "" if args.psk is None else args.psk
 
-    slot = pack_slot(args.ssid, psk)
-    data[off : off + SLOT_SIZE] = slot
-    out = args.output or args.image
-    out.write_bytes(data)
-    print(f"patched {out} at offset 0x{off:X} (flash 0x{FLASH_BASE + off:08X})")
-    print(f"  ssid={args.ssid!r}")
-    print(f"  psk={psk!r}")
+    targets = [args.image]
+    if args.output:
+        data = args.image.read_bytes()
+        args.output.write_bytes(data)
+        targets = [args.output]
+    elif not args.no_sibling:
+        # Also touch companion image: J-Link / Ozone usually flash the .elf.
+        if args.image.suffix.lower() == ".bin":
+            sib = args.image.with_suffix(".elf")
+            if sib.is_file():
+                targets.append(sib)
+        elif args.image.suffix.lower() == ".elf":
+            sib = args.image.with_suffix(".bin")
+            if sib.is_file():
+                targets.append(sib)
+
+    for t in targets:
+        patch_one(t, None if show else args.ssid, None if show else psk, show, args.address)
+
+    if not show and len(targets) == 1 and args.image.suffix.lower() == ".bin":
+        print(
+            "note: flash this .bin at 0x00000000, OR also patch the .elf "
+            "(J-Link usually loads the .elf).",
+            file=sys.stderr,
+        )
+    if show and len(targets) > 1:
+        print(
+            "note: J-Link typically programs the .elf — both images must match.",
+            file=sys.stderr,
+        )
     return 0
 
 

@@ -9,8 +9,8 @@
 
 /*
  * Placed at WB_WIFI_CRED_FLASH_ADDR via linker --section-start / snippet.
- * Magic bytes exist ONLY in this object (no second "WBWIFIv1" string in
- * .rodata) so patch_wifi_cred.py can locate the slot uniquely.
+ * Runtime accessors always read the absolute flash address so the slot
+ * matches what scripts/patch_wifi_cred.py patches in the .bin (0x7E000).
  */
 __attribute__((section(".wb_wifi_cred"), used, aligned(4)))
 const wb_wifi_cred_t wb_wifi_cred = {
@@ -20,27 +20,40 @@ const wb_wifi_cred_t wb_wifi_cred = {
 	.reserved = { 0 },
 };
 
-static bool magic_ok(void)
+const wb_wifi_cred_t *wb_wifi_cred_at_flash(void)
 {
-	const char *m = wb_wifi_cred.magic;
+	return (const wb_wifi_cred_t *)(uintptr_t)WB_WIFI_CRED_FLASH_ADDR;
+}
+
+static bool magic_ok(const wb_wifi_cred_t *c)
+{
+	const char *m;
+
+	if (!c) {
+		return false;
+	}
+	m = c->magic;
 	return m[0] == 'W' && m[1] == 'B' && m[2] == 'W' && m[3] == 'I' &&
 	       m[4] == 'F' && m[5] == 'I' && m[6] == 'v' && m[7] == '1';
 }
 
 bool wb_wifi_cred_valid(void)
 {
-	return magic_ok() && wb_wifi_cred.ssid[0] != '\0';
+	const wb_wifi_cred_t *c = wb_wifi_cred_at_flash();
+	return magic_ok(c) && c->ssid[0] != '\0';
 }
 
 const char *wb_wifi_cred_ssid(void)
 {
-	return wb_wifi_cred_valid() ? wb_wifi_cred.ssid : NULL;
+	const wb_wifi_cred_t *c = wb_wifi_cred_at_flash();
+	return (magic_ok(c) && c->ssid[0] != '\0') ? c->ssid : NULL;
 }
 
 const char *wb_wifi_cred_psk(void)
 {
-	if (!magic_ok()) {
+	const wb_wifi_cred_t *c = wb_wifi_cred_at_flash();
+	if (!magic_ok(c)) {
 		return NULL;
 	}
-	return wb_wifi_cred.psk;
+	return c->psk;
 }
