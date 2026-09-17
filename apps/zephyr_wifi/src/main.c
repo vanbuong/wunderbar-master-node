@@ -236,7 +236,8 @@ int main(void)
 	{
 		const wb_wifi_cred_t *c = wb_wifi_cred_at_flash();
 
-		LOG_INF("cred @0x%08X valid=%d ssid=%s",
+		LOG_INF("cred @%p (expect 0x%08X) valid=%d ssid=%s",
+			(void *)wb_wifi_cred_at_flash(),
 			(unsigned)WB_WIFI_CRED_FLASH_ADDR,
 			wb_wifi_cred_valid() ? 1 : 0,
 			(ssid && ssid[0]) ? ssid : "(none)");

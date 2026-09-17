@@ -8,9 +8,9 @@
 #include <string.h>
 
 /*
- * Placed at WB_WIFI_CRED_FLASH_ADDR via linker --section-start / snippet.
- * Runtime accessors always read the absolute flash address so the slot
- * matches what scripts/patch_wifi_cred.py patches in the .bin (0x7E000).
+ * Placed at WB_WIFI_CRED_FLASH_ADDR via linker (Zephyr WIFI_CRED region or
+ * FreeRTOS --section-start). Accessors use the linked symbol so the runtime
+ * view always matches what patch_wifi_cred.py patches in the .elf section.
  */
 __attribute__((section(".wb_wifi_cred"), used, aligned(4)))
 const wb_wifi_cred_t wb_wifi_cred = {
@@ -22,7 +22,7 @@ const wb_wifi_cred_t wb_wifi_cred = {
 
 const wb_wifi_cred_t *wb_wifi_cred_at_flash(void)
 {
-	return (const wb_wifi_cred_t *)(uintptr_t)WB_WIFI_CRED_FLASH_ADDR;
+	return &wb_wifi_cred;
 }
 
 static bool magic_ok(const wb_wifi_cred_t *c)

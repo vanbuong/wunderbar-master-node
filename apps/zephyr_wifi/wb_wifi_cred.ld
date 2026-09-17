@@ -1,8 +1,9 @@
 /*
- * Place .wb_wifi_cred at absolute flash address 0x0007E000 (MK24 flash @ 0).
- * Included via zephyr_linker_sources(SECTIONS ...).
+ * Absolute flash slot at 0x0007E000 (shared with FreeRTOS / patch_wifi_cred.py).
+ * Must use "section ADDR :" + "> FLASH" — a bare ". = ADDR" without FLASH
+ * output is ignored by ld and the section packs at the end of the image.
  */
-. = 0x0007E000;
-.wb_wifi_cred : {
+.wb_wifi_cred 0x0007E000 :
+{
 	KEEP(*(.wb_wifi_cred))
-}
+} > FLASH

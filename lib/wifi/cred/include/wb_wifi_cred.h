@@ -54,10 +54,10 @@ typedef struct __attribute__((packed)) {
 _Static_assert(sizeof(wb_wifi_cred_t) == WB_WIFI_CRED_SIZE,
 	       "wb_wifi_cred_t must be 128 bytes");
 
-/** Flash-resident credential blob (section .wb_wifi_cred). */
+/** Linked credential blob (section .wb_wifi_cred @ WB_WIFI_CRED_FLASH_ADDR). */
 extern const wb_wifi_cred_t wb_wifi_cred;
 
-/** Absolute flash view of the slot (same address the patch script uses). */
+/** Pointer to the linked flash slot (same object the patch script updates). */
 const wb_wifi_cred_t *wb_wifi_cred_at_flash(void);
 
 /** True if magic matches and ssid is non-empty. */

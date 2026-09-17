@@ -9,6 +9,7 @@ include(${WB_ROOT}/lib/wifi/cred/wb_wifi_cred.cmake)
 # Headers only — wb_time symbols come from the GS1500M driver library.
 include(${WB_ROOT}/lib/time/wb_time.cmake)
 
+# Fixed flash slot at 0x7E000 (see wb_wifi_cred.ld)
 zephyr_linker_sources(SECTIONS ${CMAKE_CURRENT_SOURCE_DIR}/wb_wifi_cred.ld)
 
 target_include_directories(app PRIVATE

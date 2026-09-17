@@ -245,26 +245,81 @@ def resolve_offset(data: bytearray, kind: str, address: int | None) -> int:
     return hits[0]
 
 
+def elf_section_vma(data: bytes, section_name: str = ".wb_wifi_cred") -> int | None:
+    """Return VMA of a named ELF32 LE section."""
+    if len(data) < 52 or data[:4] != b"\x7fELF" or data[4] != 1 or data[5] != 1:
+        return None
+    (
+        _e_type,
+        _e_machine,
+        _e_version,
+        _e_entry,
+        _e_phoff,
+        e_shoff,
+        _e_flags,
+        _e_ehsize,
+        _e_phentsize,
+        _e_phnum,
+        e_shentsize,
+        e_shnum,
+        e_shstrndx,
+    ) = struct.unpack_from("<HHIIIIIHHHHHH", data, 16)
+    if e_shentsize < 40 or e_shnum == 0 or e_shstrndx >= e_shnum:
+        return None
+
+    def shdr(i: int) -> tuple:
+        return struct.unpack_from("<IIIIIIIIII", data, e_shoff + i * e_shentsize)
+
+    str_sh = shdr(e_shstrndx)
+    strtab = data[str_sh[4] : str_sh[4] + str_sh[5]]
+    for i in range(e_shnum):
+        sh_name, _t, _f, sh_addr, _sh_offset, sh_size, *_rest = shdr(i)
+        end = strtab.find(b"\x00", sh_name)
+        name = strtab[sh_name:end if end >= 0 else None].decode("ascii", "replace")
+        if name == section_name and sh_size >= SLOT_SIZE:
+            return int(sh_addr)
+    return None
+
+
 def patch_one(path: Path, ssid: str | None, psk: str | None, show: bool, address: int | None) -> None:
     data = bytearray(path.read_bytes())
     kind = "elf" if path.suffix.lower() == ".elf" else "bin"
     off = resolve_offset(data, kind, address)
+    flash_addr = DEFAULT_ADDR
+    if kind == "elf":
+        vma = elf_section_vma(bytes(data))
+        if vma is not None:
+            flash_addr = vma
+    elif kind == "bin":
+        flash_addr = FLASH_BASE + off
 
     if show or ssid is None:
         s, p = unpack_slot(bytes(data[off : off + SLOT_SIZE]))
         print(f"{path}:")
-        print(f"  offset  0x{off:X}  (flash 0x{FLASH_BASE + off if kind == 'bin' else DEFAULT_ADDR:08X})")
+        print(f"  offset  0x{off:X}  (flash 0x{flash_addr:08X})")
         print(f"  ssid    {s!r}")
         print(f"  psk     {p!r}")
+        if kind == "elf" and flash_addr != DEFAULT_ADDR:
+            print(
+                f"  note: section VMA is 0x{flash_addr:08X}, not 0x{DEFAULT_ADDR:08X} — "
+                f"rebuild with WIFI_CRED linker region, or flash this .elf after patching",
+                file=sys.stderr,
+            )
         return
 
     assert psk is not None
     slot = pack_slot(ssid, psk)
     data[off : off + SLOT_SIZE] = slot
     path.write_bytes(data)
-    print(f"patched {path} at file offset 0x{off:X}")
+    print(f"patched {path} at file offset 0x{off:X} (flash 0x{flash_addr:08X})")
     print(f"  ssid={ssid!r}")
     print(f"  psk={psk!r}")
+    if kind == "bin" and len(data) <= DEFAULT_ADDR:
+        print(
+            "warning: this .bin is smaller than 0x7E000 — Zephyr images must be "
+            "patched as .elf (J-Link flashes the .elf section).",
+            file=sys.stderr,
+        )
 
 
 def main() -> int:
