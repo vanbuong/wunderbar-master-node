@@ -71,10 +71,15 @@ static void gs_rx_thread_fn(void *p1, void *p2, void *p3)
 	ARG_UNUSED(p2);
 	ARG_UNUSED(p3);
 
+	/*
+	 * With IRQ UART the ring is filled in the ISR. Do not feed
+	 * gs_at_process_byte from this thread — that races the command
+	 * waiter. Only poll-fill the ring when IRQ RX is unavailable.
+	 */
 	while (1) {
 		if (k_mutex_lock(&data->lock, K_MSEC(20)) == 0) {
 			if (data->initialized) {
-				gs_platform_zephyr_rx_poll(5);
+				gs_platform_zephyr_rx_pump(5);
 			}
 			k_mutex_unlock(&data->lock);
 		}
@@ -145,9 +150,14 @@ static void gs_connect_work_fn(struct k_work *work)
 	k_mutex_lock(&data->lock, K_FOREVER);
 	data->connecting = true;
 
+	LOG_INF("joining ssid=%s psk_len=%u", data->ssid,
+		(unsigned)strlen(data->psk));
+
 	id = gs_wifi_join_wpa(data->ssid, data->psk[0] ? data->psk : NULL);
-	if (id == GS_MSG_APP_RESET || id == GS_MSG_TIMEOUT) {
+	if (id == GS_MSG_APP_RESET || id == GS_MSG_TIMEOUT || id == GS_MSG_ERROR) {
+		LOG_WRN("join id=%d — re-init and retry once", (int)id);
 		gs_at_flush();
+		k_msleep(500);
 		if (gs_wifi_init(CONFIG_WIFI_GS1500M_AT_INIT_TIMEOUT_MS) == GS_MSG_OK) {
 			id = gs_wifi_join_wpa(data->ssid,
 					      data->psk[0] ? data->psk : NULL);
@@ -179,9 +189,14 @@ static void gs_connect_work_fn(struct k_work *work)
 		}
 		status = 0;
 	} else {
+		const char *last = gs_at_last_line();
+		const char *info = gs_at_info_accum();
+
 		data->connected = false;
 		status = -EIO;
-		LOG_ERR("join failed (%d)", (int)id);
+		LOG_ERR("join failed (%d) last='%s' info='%s' psk_len=%u",
+			(int)id, last ? last : "", info ? info : "",
+			(unsigned)strlen(data->psk));
 	}
 
 	data->connecting = false;

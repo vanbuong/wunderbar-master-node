@@ -15,6 +15,13 @@ extern "C" {
 /** Bind to DTS uart0 + wifi-* GPIO aliases and install platform. */
 int gs_platform_zephyr_init(gs_platform_t *out);
 
+/**
+ * Optional background pump: fill the RX ring from the UART HW FIFO when
+ * interrupt RX is unavailable. Does not touch the AT parser.
+ */
+void gs_platform_zephyr_rx_pump(uint32_t block_ms);
+
+/** @deprecated Prefer gs_platform_zephyr_rx_pump — this also feeds the AT parser. */
 void gs_platform_zephyr_rx_poll(uint32_t block_ms);
 
 #ifdef __cplusplus

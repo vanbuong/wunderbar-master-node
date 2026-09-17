@@ -355,6 +355,33 @@ int gs_platform_zephyr_init(gs_platform_t *out)
 	return 0;
 }
 
+void gs_platform_zephyr_rx_pump(uint32_t block_ms)
+{
+	/*
+	 * IRQ path already fills the ring. For poll UART, drain HW → ring
+	 * without feeding the AT parser (command path owns that).
+	 */
+	int64_t end = k_uptime_get() + (int64_t)block_ms;
+
+	if (s_irq_rx) {
+		if (block_ms > 0U) {
+			k_msleep(block_ms);
+		}
+		return;
+	}
+
+	do {
+		zephyr_rx_poll_hw();
+		if (block_ms == 0U) {
+			break;
+		}
+		if (k_uptime_get() >= end) {
+			break;
+		}
+		k_msleep(1);
+	} while (k_uptime_get() < end);
+}
+
 void gs_platform_zephyr_rx_poll(uint32_t block_ms)
 {
 	uint8_t b;

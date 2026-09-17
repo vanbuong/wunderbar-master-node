@@ -20,7 +20,7 @@ if WIFI_GS1500M_AT
 
 config WIFI_GS1500M_AT_WORKQ_STACK_SIZE
 	int "GS1500M WiFi workqueue stack size"
-	default 4096
+	default 8192
 
 config WIFI_GS1500M_AT_WORKQ_PRIORITY
 	int "GS1500M WiFi workqueue priority"

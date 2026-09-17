@@ -1367,11 +1367,26 @@ gs_msg_id_t gs_wifi_join_wpa(const char *ssid, const char *psk)
 	if (psk && psk[0]) {
 		/*
 		 * Prefer AT+WPAPSK=<ssid>,<passphrase> (computes PSK for this SSID).
-		 * Fall back to WSEC + WWPA on older firmwares.
+		 * PMK derivation on GS1500M is slow — allow up to 30s before falling
+		 * back to WSEC + WWPA on older firmwares.
 		 */
-		id = gs_at_send_cmdf(GS_AT_DEFAULT_CMD_TIMEOUT_MS, "AT+WPAPSK=%s,%s\r\n",
-				     ssid, psk);
+		id = gs_at_send_cmdf(30000U, "AT+WPAPSK=%s,%s\r\n", ssid, psk);
+		if (id == GS_MSG_TIMEOUT) {
+			/* Late OK after compute; do not stomp a busy module. */
+			drain_rx_ms(2000U);
+			{
+				const char *partial = gs_at_partial_line();
+				const char *last = gs_at_last_line();
+
+				if ((last && gs_at_classify_line(last) == GS_MSG_OK) ||
+				    (partial && gs_at_classify_line(partial) == GS_MSG_OK)) {
+					id = GS_MSG_OK;
+				}
+			}
+		}
 		if (id != GS_MSG_OK) {
+			gs_at_flush();
+			delay_ms(200);
 			id = gs_wifi_set_security(GS_WIFI_SEC_WPA_WPA2_PSK);
 			if (id != GS_MSG_OK) {
 				return id;
