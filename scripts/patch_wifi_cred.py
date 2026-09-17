@@ -553,9 +553,15 @@ def main() -> int:
     for t in targets:
         patch_one(t, None if show else args.ssid, None if show else psk, show, args.address)
 
-    if not show and any(image_kind(t) == "hex" for t in targets):
+    kinds = {image_kind(t) for t in targets}
+    if not show and "hex" in kinds and len(targets) > 1:
         print(
             "note: west flash typically programs .hex — siblings were kept in sync.",
+            file=sys.stderr,
+        )
+    elif not show and "hex" in kinds:
+        print(
+            "note: west flash typically programs .hex — reflash after patching.",
             file=sys.stderr,
         )
     elif not show and len(targets) == 1 and image_kind(args.image) == "bin":

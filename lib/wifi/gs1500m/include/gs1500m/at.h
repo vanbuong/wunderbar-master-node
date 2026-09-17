@@ -45,6 +45,9 @@ typedef enum {
 	GS_MSG_FW_UPDATE_OK,
 } gs_msg_id_t;
 
+/** Short name for logs (stable string; never NULL). */
+const char *gs_at_msg_name(gs_msg_id_t id);
+
 typedef enum {
 	GS_ESC_KIND_NONE = 0,
 	GS_ESC_KIND_STREAM,   /* ESC S */

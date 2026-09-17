@@ -187,6 +187,14 @@ static void gs_connect_work_fn(struct k_work *work)
 				wb_time_set_unix(unix_sec);
 				LOG_INF("time synced unix=%u", (unsigned)unix_sec);
 			}
+			/*
+			 * NTIMESYNC can emit a late ERROR: SOCKET FAILURE after
+			 * OK/GETTIME. Drain it and drop any SNTP CIDs before the
+			 * app opens TCP/UDP.
+			 */
+			gs_at_flush();
+			(void)gs_socket_close_all();
+			gs_at_flush();
 		}
 		status = 0;
 	} else {

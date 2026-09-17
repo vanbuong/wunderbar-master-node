@@ -162,47 +162,77 @@ static void log_iface_status(struct net_if *iface)
 		(int)status.security);
 }
 
-/* Prove Zephyr-native TCP offload: open NCTCP and send a tiny HTTP request. */
-static void socket_smoke_tcp(void)
+/* Prove Zephyr-native TCP offload: open NCTCP (optional tiny HTTP HEAD). */
+static int smoke_tcp_one(const char *ip, uint16_t port, bool http_head)
 {
 	int fd;
 	struct sockaddr_in addr;
-	static const char req[] =
-		"HEAD / HTTP/1.0\r\nHost: 1.1.1.1\r\nConnection: close\r\n\r\n";
+	char req[96];
 	char buf[80];
 	int n;
 
 	fd = zsock_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (fd < 0) {
 		LOG_ERR("socket() failed (%d)", errno);
-		return;
+		return -1;
 	}
 
 	memset(&addr, 0, sizeof(addr));
 	addr.sin_family = AF_INET;
-	addr.sin_port = htons(80);
-	(void)zsock_inet_pton(AF_INET, "1.1.1.1", &addr.sin_addr);
+	addr.sin_port = htons(port);
+	if (zsock_inet_pton(AF_INET, ip, &addr.sin_addr) != 1) {
+		LOG_ERR("bad smoke IP %s", ip);
+		zsock_close(fd);
+		return -1;
+	}
 
-	LOG_INF("TCP smoke connect 1.1.1.1:80...");
+	LOG_INF("TCP smoke connect %s:%u...", ip, port);
 	if (zsock_connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-		LOG_ERR("connect() failed (%d)", errno);
+		LOG_ERR("connect(%s:%u) failed errno=%d", ip, port, errno);
 		zsock_close(fd);
-		return;
+		return -1;
 	}
-	LOG_INF("TCP connected, sending HEAD");
-	if (zsock_send(fd, req, sizeof(req) - 1U, 0) < 0) {
-		LOG_ERR("send() failed (%d)", errno);
-		zsock_close(fd);
-		return;
+	LOG_INF("TCP connected to %s:%u", ip, port);
+
+	if (http_head) {
+		n = snprintk(req, sizeof(req),
+			     "HEAD / HTTP/1.0\r\nHost: %s\r\nConnection: close\r\n\r\n",
+			     ip);
+		if (n > 0 && zsock_send(fd, req, (size_t)n, 0) >= 0) {
+			n = zsock_recv(fd, buf, sizeof(buf) - 1U, 0);
+			if (n > 0) {
+				buf[n] = '\0';
+				LOG_INF("TCP rx %d bytes: %.60s", n, buf);
+			} else {
+				LOG_WRN("TCP recv returned %d errno=%d", n, errno);
+			}
+		} else {
+			LOG_WRN("HTTP HEAD send skipped/failed (%d)", errno);
+		}
 	}
-	n = zsock_recv(fd, buf, sizeof(buf) - 1U, 0);
-	if (n > 0) {
-		buf[n] = '\0';
-		LOG_INF("TCP rx %d bytes: %.60s", n, buf);
-	} else {
-		LOG_WRN("TCP recv returned %d errno=%d", n, errno);
-	}
+
 	zsock_close(fd);
+	return 0;
+}
+
+static void socket_smoke_tcp(void)
+{
+	/* Prefer HTTP; fall back to TCP/53 (often allowed when :80 is filtered). */
+	if (smoke_tcp_one("1.1.1.1", 80, true) == 0) {
+		LOG_INF("TCP smoke OK via 1.1.1.1:80");
+		return;
+	}
+	k_msleep(500);
+	if (smoke_tcp_one("8.8.8.8", 53, false) == 0) {
+		LOG_INF("TCP smoke OK via 8.8.8.8:53");
+		return;
+	}
+	k_msleep(500);
+	if (smoke_tcp_one("208.67.222.222", 80, true) == 0) {
+		LOG_INF("TCP smoke OK via 208.67.222.222:80");
+		return;
+	}
+	LOG_ERR("TCP smoke failed on all targets");
 }
 
 int main(void)

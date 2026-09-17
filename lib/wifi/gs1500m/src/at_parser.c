@@ -170,6 +170,52 @@ static bool token_at_start(const char *line, const char *tok)
 	       line[n] == ' ' || line[n] == '\t';
 }
 
+const char *gs_at_msg_name(gs_msg_id_t id)
+{
+	switch (id) {
+	case GS_MSG_NONE:
+		return "NONE";
+	case GS_MSG_OK:
+		return "OK";
+	case GS_MSG_ERROR:
+		return "ERROR";
+	case GS_MSG_INVALID_INPUT:
+		return "INVALID_INPUT";
+	case GS_MSG_ERROR_IP_CONFIG:
+		return "ERROR_IP_CONFIG";
+	case GS_MSG_ERROR_SOCKET:
+		return "ERROR_SOCKET";
+	case GS_MSG_DISCONNECT:
+		return "DISCONNECT";
+	case GS_MSG_DISASSOCIATED:
+		return "DISASSOCIATED";
+	case GS_MSG_APP_RESET:
+		return "APP_RESET";
+	case GS_MSG_WELCOME:
+		return "WELCOME";
+	case GS_MSG_CONNECT:
+		return "CONNECT";
+	case GS_MSG_CONNECT_SERVER_CLIENT:
+		return "CONNECT_SERVER_CLIENT";
+	case GS_MSG_TIMEOUT:
+		return "TIMEOUT";
+	case GS_MSG_BULK_DATA:
+		return "BULK_DATA";
+	case GS_MSG_STREAM_DATA:
+		return "STREAM_DATA";
+	case GS_MSG_HTTP_DATA:
+		return "HTTP_DATA";
+	case GS_MSG_ESC_OK:
+		return "ESC_OK";
+	case GS_MSG_ESC_FAIL:
+		return "ESC_FAIL";
+	case GS_MSG_FW_UPDATE_OK:
+		return "FW_UPDATE_OK";
+	default:
+		return "?";
+	}
+}
+
 gs_msg_id_t gs_at_classify_line(const char *line)
 {
 	const char *s = line;

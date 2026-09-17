@@ -136,7 +136,12 @@ static int gs_sock_connect_locked(struct gs1500m_data *data, struct gs_socket *s
 	gs_socket_flag_clear(sock, GS_SOCK_CONNECTING);
 
 	if (id != GS_MSG_CONNECT && id != GS_MSG_OK) {
-		LOG_ERR("socket open failed id=%d", (int)id);
+		const char *last = gs_at_last_line();
+		const char *partial = gs_at_partial_line();
+
+		LOG_ERR("socket open failed id=%d (%s) last='%s' partial='%s'",
+			(int)id, gs_at_msg_name(id), last ? last : "",
+			partial ? partial : "");
 		return -EIO;
 	}
 	if (cid == GS_AT_INVALID_CID) {
