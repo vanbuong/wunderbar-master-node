@@ -8,7 +8,8 @@ include(${WB_ROOT}/lib/wifi/gs1500m/gs1500m.cmake)
 
 zephyr_library_sources(
   gs.c
-  gs_offload_stub.c
+  gs_socket.c
+  gs_offload.c
   ${GS1500M_SOURCES}
   ${GS1500M_PORT_SOURCES}
   ${WB_TIME_SOURCES}

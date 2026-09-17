@@ -72,14 +72,13 @@ static void gs_rx_thread_fn(void *p1, void *p2, void *p3)
 	ARG_UNUSED(p3);
 
 	/*
-	 * With IRQ UART the ring is filled in the ISR. Do not feed
-	 * gs_at_process_byte from this thread — that races the command
-	 * waiter. Only poll-fill the ring when IRQ RX is unavailable.
+	 * Idle drain: when no AT command holds data->lock, feed the UART ring
+	 * into the AT parser so unsolicited ESC RX / DISCONNECT are handled.
 	 */
 	while (1) {
 		if (k_mutex_lock(&data->lock, K_MSEC(20)) == 0) {
 			if (data->initialized) {
-				gs_platform_zephyr_rx_pump(5);
+				gs1500m_parser_drain_locked(data);
 			}
 			k_mutex_unlock(&data->lock);
 		}
@@ -100,6 +99,8 @@ static void gs_init_work_fn(struct k_work *work)
 		k_mutex_unlock(&data->lock);
 		return;
 	}
+
+	gs1500m_at_callbacks_install(data);
 
 	wb_time_init(NULL, NULL);
 
@@ -215,6 +216,7 @@ static void gs_disconnect_work_fn(struct k_work *work)
 	k_mutex_lock(&data->lock, K_FOREVER);
 	(void)gs_wifi_disconnect();
 	data->connected = false;
+	gs1500m_sockets_notify_link_down(data);
 	if (data->iface) {
 		net_if_dormant_on(data->iface);
 	}
@@ -381,6 +383,7 @@ static int gs_init(const struct device *dev)
 
 	memset(data, 0, sizeof(*data));
 	k_mutex_init(&data->lock);
+	gs1500m_sockets_init(data);
 
 	k_work_queue_start(&data->workq, gs_workq_stack,
 			   K_KERNEL_STACK_SIZEOF(gs_workq_stack),

@@ -38,4 +38,14 @@ config WIFI_GS1500M_AT_INIT_TIMEOUT_MS
 	int "Module AT bring-up timeout (ms)"
 	default 8000
 
+config WIFI_GS1500M_AT_MAX_SOCKETS
+	int "Max concurrent offload sockets"
+	default 4
+	range 1 16
+
+config WIFI_GS1500M_AT_TX_BUF_SIZE
+	int "TX linearization buffer for net_offload send"
+	default 1500
+	range 64 9999
+
 endif # WIFI_GS1500M_AT

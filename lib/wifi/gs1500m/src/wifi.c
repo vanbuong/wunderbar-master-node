@@ -1227,6 +1227,7 @@ static gs_msg_id_t ntp_sync_via_ntimesync(uint32_t *unix_out)
 static gs_msg_id_t ntp_sync_via_udp(uint32_t *unix_out)
 {
 	gs_at_callbacks_t cbs;
+	gs_at_callbacks_t saved;
 	gs_ntp_rx_t rx;
 	uint8_t cid = GS_AT_INVALID_CID;
 	uint8_t req[48];
@@ -1244,8 +1245,10 @@ static gs_msg_id_t ntp_sync_via_udp(uint32_t *unix_out)
 	req[0] = 0x1BU; /* LI=0 VN=3 Mode=3 (client) */
 
 	cbs.on_data = ntp_on_data;
+	cbs.on_data_end = NULL;
 	cbs.on_line = NULL;
 	cbs.user = &rx;
+	gs_at_get_callbacks(&saved);
 	gs_at_set_callbacks(&cbs);
 
 	id = GS_MSG_ERROR;
@@ -1279,7 +1282,7 @@ static gs_msg_id_t ntp_sync_via_udp(uint32_t *unix_out)
 		id = GS_MSG_TIMEOUT;
 	}
 
-	gs_at_set_callbacks(NULL);
+	gs_at_set_callbacks(&saved);
 
 	if (!unix_time_plausible(unix_t)) {
 		return (id == GS_MSG_OK) ? GS_MSG_ERROR : id;

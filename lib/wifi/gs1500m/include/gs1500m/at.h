@@ -54,21 +54,26 @@ typedef enum {
 	GS_ESC_KIND_HTTP,     /* ESC H */
 } gs_esc_kind_t;
 
-/** Called for each payload byte of an ESC data frame. */
+/** Called for each payload chunk of an ESC data frame. */
 typedef void (*gs_data_cb_t)(uint8_t cid, gs_esc_kind_t kind,
 			     const uint8_t *data, size_t len, void *user);
+
+/** Called once when an ESC data frame is complete (after final chunk). */
+typedef void (*gs_data_end_cb_t)(uint8_t cid, gs_esc_kind_t kind, void *user);
 
 /** Optional line callback for async unsolicited messages. */
 typedef void (*gs_line_cb_t)(gs_msg_id_t id, const char *line, void *user);
 
 typedef struct {
 	gs_data_cb_t on_data;
+	gs_data_end_cb_t on_data_end;
 	gs_line_cb_t on_line;
 	void *user;
 } gs_at_callbacks_t;
 
 void gs_at_init(const gs_at_callbacks_t *cbs);
 void gs_at_set_callbacks(const gs_at_callbacks_t *cbs);
+void gs_at_get_callbacks(gs_at_callbacks_t *out);
 
 /** Feed one RX byte into the line/ESC FSM. */
 gs_msg_id_t gs_at_process_byte(uint8_t b);

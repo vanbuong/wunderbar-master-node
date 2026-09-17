@@ -11,6 +11,7 @@
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/net_event.h>
 #include <zephyr/net/wifi_mgmt.h>
+#include <zephyr/net/socket.h>
 #include <zephyr/sys/clock.h>
 
 #include <string.h>
@@ -161,6 +162,49 @@ static void log_iface_status(struct net_if *iface)
 		(int)status.security);
 }
 
+/* Prove Zephyr-native TCP offload: open NCTCP and send a tiny HTTP request. */
+static void socket_smoke_tcp(void)
+{
+	int fd;
+	struct sockaddr_in addr;
+	static const char req[] =
+		"HEAD / HTTP/1.0\r\nHost: 1.1.1.1\r\nConnection: close\r\n\r\n";
+	char buf[80];
+	int n;
+
+	fd = zsock_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (fd < 0) {
+		LOG_ERR("socket() failed (%d)", errno);
+		return;
+	}
+
+	memset(&addr, 0, sizeof(addr));
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(80);
+	(void)zsock_inet_pton(AF_INET, "1.1.1.1", &addr.sin_addr);
+
+	LOG_INF("TCP smoke connect 1.1.1.1:80...");
+	if (zsock_connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+		LOG_ERR("connect() failed (%d)", errno);
+		zsock_close(fd);
+		return;
+	}
+	LOG_INF("TCP connected, sending HEAD");
+	if (zsock_send(fd, req, sizeof(req) - 1U, 0) < 0) {
+		LOG_ERR("send() failed (%d)", errno);
+		zsock_close(fd);
+		return;
+	}
+	n = zsock_recv(fd, buf, sizeof(buf) - 1U, 0);
+	if (n > 0) {
+		buf[n] = '\0';
+		LOG_INF("TCP rx %d bytes: %.60s", n, buf);
+	} else {
+		LOG_WRN("TCP recv returned %d errno=%d", n, errno);
+	}
+	zsock_close(fd);
+}
+
 int main(void)
 {
 	struct net_if *iface;
@@ -226,6 +270,8 @@ int main(void)
 			LOG_INF("realtime synced=%d unix=%u",
 				wb_time_is_synced() ? 1 : 0,
 				(unsigned)wb_time_get_unix());
+			net_if_set_default(iface);
+			socket_smoke_tcp();
 		}
 	}
 

@@ -67,6 +67,13 @@ static void emit_data_flush(void)
 	s_data_chunk_len = 0U;
 }
 
+static void notify_data_end(void)
+{
+	if (s_cbs.on_data_end) {
+		s_cbs.on_data_end(s_cid, s_esc_kind, s_cbs.user);
+	}
+}
+
 static void emit_data_byte(uint8_t b)
 {
 	s_data_chunk[s_data_chunk_len++] = b;
@@ -138,6 +145,13 @@ void gs_at_set_callbacks(const gs_at_callbacks_t *cbs)
 		s_cbs = *cbs;
 	} else {
 		memset(&s_cbs, 0, sizeof(s_cbs));
+	}
+}
+
+void gs_at_get_callbacks(gs_at_callbacks_t *out)
+{
+	if (out) {
+		*out = s_cbs;
 	}
 }
 
@@ -337,6 +351,7 @@ gs_msg_id_t gs_at_process_byte(uint8_t b)
 			s_stream_esc_pending = false;
 			if (b == 'E') {
 				emit_data_flush();
+				notify_data_end();
 				id = GS_MSG_STREAM_DATA;
 				reset_to_start();
 			} else {
@@ -370,6 +385,7 @@ gs_msg_id_t gs_at_process_byte(uint8_t b)
 			s_bulk_got = 0U;
 			s_state = (s_bulk_len == 0U) ? RX_START : RX_BULK_DATA;
 			if (s_bulk_len == 0U) {
+				notify_data_end();
 				id = GS_MSG_BULK_DATA;
 			}
 		}
@@ -380,6 +396,7 @@ gs_msg_id_t gs_at_process_byte(uint8_t b)
 		s_bulk_got++;
 		if (s_bulk_got >= s_bulk_len) {
 			emit_data_flush();
+			notify_data_end();
 			id = GS_MSG_BULK_DATA;
 			reset_to_start();
 		}
@@ -403,6 +420,7 @@ gs_msg_id_t gs_at_process_byte(uint8_t b)
 			s_bulk_got = 0U;
 			s_state = (s_bulk_len == 0U) ? RX_START : RX_HTTP_DATA;
 			if (s_bulk_len == 0U) {
+				notify_data_end();
 				id = GS_MSG_HTTP_DATA;
 			}
 		}
@@ -413,6 +431,7 @@ gs_msg_id_t gs_at_process_byte(uint8_t b)
 		s_bulk_got++;
 		if (s_bulk_got >= s_bulk_len) {
 			emit_data_flush();
+			notify_data_end();
 			id = GS_MSG_HTTP_DATA;
 			reset_to_start();
 		}
@@ -450,6 +469,7 @@ gs_msg_id_t gs_at_process_byte(uint8_t b)
 			s_bulk_got = 0U;
 			s_state = (s_bulk_len == 0U) ? RX_START : RX_UDP_BULK_DATA;
 			if (s_bulk_len == 0U) {
+				notify_data_end();
 				id = GS_MSG_BULK_DATA;
 			}
 		}
@@ -460,6 +480,7 @@ gs_msg_id_t gs_at_process_byte(uint8_t b)
 		s_bulk_got++;
 		if (s_bulk_got >= s_bulk_len) {
 			emit_data_flush();
+			notify_data_end();
 			id = GS_MSG_BULK_DATA;
 			reset_to_start();
 		}
@@ -488,6 +509,7 @@ gs_msg_id_t gs_at_process_byte(uint8_t b)
 			s_stream_esc_pending = false;
 			if (b == 'E') {
 				emit_data_flush();
+				notify_data_end();
 				id = GS_MSG_BULK_DATA;
 				reset_to_start();
 			} else {
