@@ -33,6 +33,11 @@ zsock_send(fd, ...);
 
 Under the hood: `AT+NCTCP` / `AT+NCUDP` + ESC Z bulk TX + ESC RX → `net_pkt`.
 
+After association the driver runs module SNTP (`AT+NTIMESYNC`), then
+`AT+NCLOSEALL` + UART flush so a late `ERROR: SOCKET FAILURE` cannot be
+mistaken for the next `NCTCP` response. Client opens also flush (and retry
+once) before treating the open as failed.
+
 ## Next milestones
 
 1. TLS via host mbedTLS (or `AT+SSLOPEN` offload)
