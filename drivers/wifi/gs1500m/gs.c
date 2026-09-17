@@ -317,10 +317,24 @@ static int gs_mgmt_iface_status(const struct device *dev,
 static void gs_iface_init(struct net_if *iface)
 {
 	struct gs1500m_data *data = net_if_get_device(iface)->data;
+	bool ready;
 
 	data->iface = iface;
 	(void)gs1500m_offload_init(iface);
 	net_if_dormant_on(iface);
+	/*
+	 * Offload ifaces default to carrier up. Hold L1 down until AT
+	 * bring-up finishes so apps waiting on net_if_is_carrier_ok()
+	 * do not race NET_REQUEST_WIFI_CONNECT (-EAGAIN).
+	 */
+	net_if_carrier_off(iface);
+
+	k_mutex_lock(&data->lock, K_FOREVER);
+	ready = data->initialized;
+	k_mutex_unlock(&data->lock);
+	if (ready) {
+		net_if_carrier_on(iface);
+	}
 }
 
 static enum offloaded_net_if_types gs_offload_get_type(void)

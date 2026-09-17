@@ -14,6 +14,7 @@
 #include <zephyr/sys/clock.h>
 
 #include <string.h>
+#include <errno.h>
 #include <time.h>
 
 #include "wb_wifi_cred.h"
@@ -98,6 +99,7 @@ static struct net_if *wait_for_wifi_iface(int timeout_ms)
 static int wifi_connect_sta(struct net_if *iface, const char *ssid, const char *psk)
 {
 	static struct net_mgmt_event_callback wifi_cb;
+	static bool wifi_cb_registered;
 	struct wifi_connect_req_params cnx = { 0 };
 	int ret;
 
@@ -106,10 +108,13 @@ static int wifi_connect_sta(struct net_if *iface, const char *ssid, const char *
 		return -EINVAL;
 	}
 
-	net_mgmt_init_event_callback(&wifi_cb, wifi_mgmt_event_handler,
-				     NET_EVENT_WIFI_CONNECT_RESULT |
-					     NET_EVENT_WIFI_DISCONNECT_RESULT);
-	net_mgmt_add_event_callback(&wifi_cb);
+	if (!wifi_cb_registered) {
+		net_mgmt_init_event_callback(&wifi_cb, wifi_mgmt_event_handler,
+					     NET_EVENT_WIFI_CONNECT_RESULT |
+						     NET_EVENT_WIFI_DISCONNECT_RESULT);
+		net_mgmt_add_event_callback(&wifi_cb);
+		wifi_cb_registered = true;
+	}
 
 	cnx.ssid = (const uint8_t *)ssid;
 	cnx.ssid_length = strlen(ssid);
@@ -200,12 +205,28 @@ int main(void)
 		LOG_ERR("WiFi iface not ready");
 		return 0;
 	}
+	LOG_INF("GS1500M iface ready");
 
-	if (wifi_connect_sta(iface, ssid, psk) == 0) {
-		log_iface_status(iface);
-		LOG_INF("realtime synced=%d unix=%u",
-			wb_time_is_synced() ? 1 : 0,
-			(unsigned)wb_time_get_unix());
+	{
+		int tries = 0;
+		int ret;
+
+		do {
+			ret = wifi_connect_sta(iface, ssid, psk);
+			if (ret != -EAGAIN) {
+				break;
+			}
+			tries++;
+			LOG_WRN("connect not ready yet, retry %d", tries);
+			k_msleep(500);
+		} while (tries < 10);
+
+		if (ret == 0) {
+			log_iface_status(iface);
+			LOG_INF("realtime synced=%d unix=%u",
+				wb_time_is_synced() ? 1 : 0,
+				(unsigned)wb_time_get_unix());
+		}
 	}
 
 	while (1) {
