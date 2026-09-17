@@ -2,7 +2,7 @@
  * Copyright (c) 2026
  * SPDX-License-Identifier: MIT
  *
- * Fixed flash slot for WiFi STA credentials (patchable in .bin/.elf).
+ * Fixed flash slot for WiFi STA credentials (patchable in .bin/.elf/.hex).
  *
  * Layout (128 bytes) at WB_WIFI_CRED_FLASH_ADDR (default 0x0007E000):
  *   [0..7]   magic "WBWIFIv1"
@@ -11,6 +11,7 @@
  *   [106..127] reserved / padding
  *
  * Patch with: ./scripts/patch_wifi_cred.py <image> --ssid ... --psk ...
+ * (siblings .elf/.bin/.hex are updated together; west flash uses .hex)
  */
 
 #ifndef WB_WIFI_CRED_H

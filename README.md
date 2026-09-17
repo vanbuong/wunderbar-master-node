@@ -78,15 +78,31 @@ Portable library: `lib/wifi/gs1500m` (AT parser, join, sockets, SSL, HTTP, MQTT 
 Credentials sit in a **128-byte flash slot at `0x0007E000`** (magic `WBWIFIv1`, then SSID ≤32 and PSK ≤64). Build once, then patch:
 
 ```bash
+# FreeRTOS
 ./scripts/build.sh freertos-wifi
 ./scripts/patch_wifi_cred.py build-freertos-wifi-rtt/wunderbar_freertos_wifi.bin \
   --ssid MyNetwork --psk 'secret-pass'
-./scripts/patch_wifi_cred.py build-freertos-wifi-rtt/wunderbar_freertos_wifi.bin --show
+
+# Zephyr (RTT image) — patch the .elf; siblings .bin/.hex are updated too
+./scripts/build.sh zephyr-wifi
+./scripts/patch_wifi_cred.py build-zephyr-wifi-rtt/zephyr/zephyr.elf \
+  --ssid MyNetwork --psk 'secret-pass'
+./scripts/patch_wifi_cred.py build-zephyr-wifi-rtt/zephyr/zephyr.elf --show
 ```
 
-The script patches the sibling `.elf` next to the `.bin` automatically (and vice versa). **J-Link / Ozone / MCUXpresso usually flash the `.elf`**, not the `.bin` — if you only patch and flash the `.bin` while the debugger reloads an unpatched `.elf`, runtime SSID stays empty.
+The script patches sibling `.elf` / `.bin` / `.hex` next to the input automatically.
 
-Flash either the patched `.elf`, or the patched `.bin` at address `0x00000000`. Firmware reads the slot at absolute flash `0x7E000`. RTT should show `cred valid=1` and your SSID; `valid=0` with raw magic `FFFFFF…` means that flash word was never programmed.
+**Which file does your flasher use?**
+
+| Tool | Typical image | What to flash after patch |
+|------|---------------|---------------------------|
+| J-Link / Ozone / MCUXpresso | `.elf` | patched `zephyr.elf` / FreeRTOS `.elf` |
+| `west flash` | `.hex` | patched `zephyr.hex` (or flash the `.elf` explicitly) |
+| raw binary | `.bin` | patched `.bin` at address `0x00000000` |
+
+If you patch `.elf`/`.bin` but `west flash` still loads an **unpatched `zephyr.hex`**, RTT shows `ssid=(none)` / `valid=0` even though `--show` on the `.elf` looks correct.
+
+Firmware reads the slot at absolute flash `0x7E000`. RTT should show `cred @0x7e000 … valid=1` and your SSID. `valid=0` with magic `FFFFFF…` means that flash word was never programmed (wrong image or hex without the slot).
 
 At runtime the demo prefers the flash slot; if SSID is empty it falls back to compile-time `WB_WIFI_SSID` / `WB_WIFI_PSK` (or Zephyr `CONFIG_WB_WIFI_*`).
 

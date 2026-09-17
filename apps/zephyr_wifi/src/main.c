@@ -237,11 +237,22 @@ int main(void)
 		const wb_wifi_cred_t *c = wb_wifi_cred_at_flash();
 
 		LOG_INF("cred @%p (expect 0x%08X) valid=%d ssid=%s",
-			(void *)wb_wifi_cred_at_flash(),
+			(void *)c,
 			(unsigned)WB_WIFI_CRED_FLASH_ADDR,
 			wb_wifi_cred_valid() ? 1 : 0,
 			(ssid && ssid[0]) ? ssid : "(none)");
-		ARG_UNUSED(c);
+		if (!wb_wifi_cred_valid() && c) {
+			LOG_WRN("cred magic=%02X%02X%02X%02X%02X%02X%02X%02X "
+				"(patch .elf+.hex, then reflash; west flash uses .hex)",
+				(unsigned)(uint8_t)c->magic[0],
+				(unsigned)(uint8_t)c->magic[1],
+				(unsigned)(uint8_t)c->magic[2],
+				(unsigned)(uint8_t)c->magic[3],
+				(unsigned)(uint8_t)c->magic[4],
+				(unsigned)(uint8_t)c->magic[5],
+				(unsigned)(uint8_t)c->magic[6],
+				(unsigned)(uint8_t)c->magic[7]);
+		}
 	}
 
 	LOG_INF("waiting for GS1500M iface...");

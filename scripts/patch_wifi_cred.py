@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Patch SSID/PSK into a WunderBar WiFi firmware image (.bin and/or .elf).
+"""Patch SSID/PSK into a WunderBar WiFi firmware image (.bin / .elf / .hex).
 
 Credentials live in a 128-byte flash slot at 0x0007E000:
 
   magic[8]=WBWIFIv1  ssid[33]  psk[65]  reserved[...]
 
-IMPORTANT: J-Link / MCUXpresso / Ozone usually flash the .elf, not the .bin.
-Patch BOTH, or flash the patched .bin explicitly at address 0x00000000.
+IMPORTANT:
+  - J-Link / MCUXpresso / Ozone usually flash the .elf.
+  - `west flash` often programs zephyr.hex — patch that too or flash the .elf.
+  - Sibling images next to the input (.elf/.bin/.hex) are patched automatically.
 
 Examples:
+  ./scripts/patch_wifi_cred.py build-zephyr-wifi-rtt/zephyr/zephyr.elf \\
+      --ssid MyNetwork --psk 'secret-pass'
   ./scripts/patch_wifi_cred.py build-freertos-wifi-rtt/wunderbar_freertos_wifi.bin \\
       --ssid MyNetwork --psk 'secret-pass'
-  # also updates sibling .elf when present
-  ./scripts/patch_wifi_cred.py image.bin --show
+  ./scripts/patch_wifi_cred.py image.elf --show
 """
 
 from __future__ import annotations
@@ -62,6 +65,15 @@ def find_all_magic(blob: bytes) -> list[int]:
             return out
         out.append(off)
         start = off + 1
+
+
+def image_kind(path: Path) -> str:
+    suf = path.suffix.lower()
+    if suf == ".elf":
+        return "elf"
+    if suf in (".hex", ".ihex"):
+        return "hex"
+    return "bin"
 
 
 def elf_section_file_offset(data: bytes, section_name: str = ".wb_wifi_cred") -> int | None:
@@ -141,25 +153,18 @@ def elf_symbol_file_offset(data: bytes, symbol: str = "wb_wifi_cred") -> int | N
     str_sh = shdr(e_shstrndx)
     strtab = data[str_sh[4] : str_sh[4] + str_sh[5]]
 
-    symtab_off = symtab_size = ent = strtab_sym_off = None
+    symtab_off = symtab_size = ent = None
     for i in range(e_shnum):
         sh_name, sh_type, _f, _a, sh_offset, sh_size, sh_link, *_r = shdr(i)
         end = strtab.find(b"\x00", sh_name)
         name = strtab[sh_name:end if end >= 0 else None].decode("ascii", "replace")
         if name == ".symtab" and sh_type == 2:
             symtab_off, symtab_size, ent = sh_offset, sh_size, 16
-            # sh_link -> .strtab
-            link = shdr(sh_link)
-            strtab_sym_off = link[4]
-        elif name == ".dynsym":
-            continue
+            break
 
-    if symtab_off is None or ent is None or strtab_sym_off is None:
+    if symtab_off is None or ent is None:
         return None
 
-    sym_str = data  # full file; offsets absolute
-    # Load sym strtab section
-    # find .strtab linked — use sh_link size from symtab's linked section
     for i in range(e_shnum):
         sh_name, sh_type, _f, _a, sh_offset, sh_size, *_r = shdr(i)
         end = strtab.find(b"\x00", sh_name)
@@ -281,9 +286,173 @@ def elf_section_vma(data: bytes, section_name: str = ".wb_wifi_cred") -> int | N
     return None
 
 
+def _ihex_checksum(payload: bytes) -> int:
+    return (-sum(payload)) & 0xFF
+
+
+def ihex_read_range(text: str, addr: int, size: int) -> bytes | None:
+    """Return `size` bytes starting at absolute flash `addr`, or None if sparse."""
+    base = 0
+    buf = bytearray(b"\xff" * size)
+    seen = 0
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line.startswith(":"):
+            continue
+        try:
+            rec = bytes.fromhex(line[1:])
+        except ValueError as e:
+            raise SystemExit(f"error: invalid Intel HEX: {e}") from e
+        if len(rec) < 5:
+            continue
+        bl, lo, typ = rec[0], (rec[1] << 8) | rec[2], rec[3]
+        data = rec[4 : 4 + bl]
+        if typ == 0:  # data
+            a = base + lo
+            for i, b in enumerate(data):
+                fa = a + i
+                if addr <= fa < addr + size:
+                    buf[fa - addr] = b
+                    seen += 1
+        elif typ == 1:  # EOF
+            break
+        elif typ == 2:  # extended segment
+            if bl >= 2:
+                base = ((data[0] << 8) | data[1]) << 4
+        elif typ == 4:  # extended linear
+            if bl >= 2:
+                base = ((data[0] << 8) | data[1]) << 16
+    if seen < size:
+        # Allow partial fill only if magic region is fully present
+        if seen == 0:
+            return None
+    return bytes(buf)
+
+
+def ihex_write_range(text: str, addr: int, payload: bytes) -> str:
+    """Rewrite Intel HEX so absolute [addr, addr+len) contains payload."""
+    end = addr + len(payload)
+    base = 0
+    out: list[str] = []
+    covered = bytearray(len(payload))  # 1 = written via existing record rewrite
+
+    def emit(bl: int, lo: int, typ: int, data: bytes) -> None:
+        body = bytes([bl, (lo >> 8) & 0xFF, lo & 0xFF, typ]) + data
+        out.append(":" + body.hex().upper() + f"{_ihex_checksum(body):02X}")
+
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if not line.startswith(":"):
+            out.append(line)
+            continue
+        try:
+            rec = bytes.fromhex(line[1:])
+        except ValueError as e:
+            raise SystemExit(f"error: invalid Intel HEX: {e}") from e
+        if len(rec) < 5:
+            out.append(line)
+            continue
+        bl, lo, typ = rec[0], (rec[1] << 8) | rec[2], rec[3]
+        data = bytearray(rec[4 : 4 + bl])
+        if typ == 0:
+            a = base + lo
+            rec_end = a + bl
+            if rec_end <= addr or a >= end:
+                out.append(line)
+            else:
+                for i in range(bl):
+                    fa = a + i
+                    if addr <= fa < end:
+                        data[i] = payload[fa - addr]
+                        covered[fa - addr] = 1
+                emit(bl, lo, 0, bytes(data))
+        elif typ == 1:
+            # Insert any missing bytes before EOF
+            missing = [i for i, c in enumerate(covered) if c == 0]
+            if missing:
+                # Group into contiguous runs; emit as ELAR + data if needed
+                i = 0
+                while i < len(missing):
+                    j = i
+                    while j + 1 < len(missing) and missing[j + 1] == missing[j] + 1:
+                        j += 1
+                    run_off = missing[i]
+                    run = payload[run_off : missing[j] + 1]
+                    run_addr = addr + run_off
+                    # Emit ELAR for high 16 bits
+                    hi = (run_addr >> 16) & 0xFFFF
+                    emit(2, 0, 4, bytes([(hi >> 8) & 0xFF, hi & 0xFF]))
+                    base = hi << 16
+                    # Chunk into 16-byte records
+                    pos = 0
+                    while pos < len(run):
+                        chunk = run[pos : pos + 16]
+                        lo16 = (run_addr + pos) & 0xFFFF
+                        emit(len(chunk), lo16, 0, chunk)
+                        pos += len(chunk)
+                    i = j + 1
+            out.append(line)
+            return "\n".join(out) + ("\n" if text.endswith("\n") else "")
+        elif typ == 2:
+            if bl >= 2:
+                base = ((data[0] << 8) | data[1]) << 4
+            out.append(line)
+        elif typ == 4:
+            if bl >= 2:
+                base = ((data[0] << 8) | data[1]) << 16
+            out.append(line)
+        else:
+            out.append(line)
+
+    # No EOF seen — append missing + EOF
+    missing = [i for i, c in enumerate(covered) if c == 0]
+    if missing:
+        raise SystemExit(
+            "error: Intel HEX is missing credential bytes and has no EOF to extend"
+        )
+    return "\n".join(out) + ("\n" if text.endswith("\n") else "")
+
+
+def patch_hex(path: Path, ssid: str | None, psk: str | None, show: bool, address: int) -> None:
+    text = path.read_text(encoding="ascii", errors="replace")
+    slot = ihex_read_range(text, address, SLOT_SIZE)
+    if slot is None or slot[:8] != MAGIC:
+        # Try DEFAULT_ADDR if custom address failed
+        if address != DEFAULT_ADDR:
+            slot = ihex_read_range(text, DEFAULT_ADDR, SLOT_SIZE)
+            address = DEFAULT_ADDR
+        if slot is None or slot[:8] != MAGIC:
+            raise SystemExit(
+                f"error: magic WBWIFIv1 not found in {path} at flash "
+                f"0x{address:08X} (west flash uses this .hex — rebuild first)"
+            )
+
+    if show or ssid is None:
+        s, p = unpack_slot(slot)
+        print(f"{path}:")
+        print(f"  offset  ihex  (flash 0x{address:08X})")
+        print(f"  ssid    {s!r}")
+        print(f"  psk     {p!r}")
+        return
+
+    assert psk is not None
+    new_slot = pack_slot(ssid, psk)
+    new_text = ihex_write_range(text, address, new_slot)
+    path.write_text(new_text, encoding="ascii")
+    print(f"patched {path} at flash 0x{address:08X}")
+    print(f"  ssid={ssid!r}")
+    print(f"  psk={psk!r}")
+
+
 def patch_one(path: Path, ssid: str | None, psk: str | None, show: bool, address: int | None) -> None:
+    kind = image_kind(path)
+    if kind == "hex":
+        patch_hex(path, ssid, psk, show, address if address is not None else DEFAULT_ADDR)
+        return
+
     data = bytearray(path.read_bytes())
-    kind = "elf" if path.suffix.lower() == ".elf" else "bin"
     off = resolve_offset(data, kind, address)
     flash_addr = DEFAULT_ADDR
     if kind == "elf":
@@ -317,23 +486,39 @@ def patch_one(path: Path, ssid: str | None, psk: str | None, show: bool, address
     if kind == "bin" and len(data) <= DEFAULT_ADDR:
         print(
             "warning: this .bin is smaller than 0x7E000 — Zephyr images must be "
-            "patched as .elf (J-Link flashes the .elf section).",
+            "patched as .elf/.hex (west flash often uses zephyr.hex).",
             file=sys.stderr,
         )
+
+
+def sibling_targets(image: Path) -> list[Path]:
+    """Return companion firmware images that should stay in sync."""
+    suf = image.suffix.lower()
+    stem_dir = image.parent
+    # Zephyr: zephyr.elf / zephyr.bin / zephyr.hex share the same stem.
+    # FreeRTOS: wunderbar_freertos_wifi.{elf,bin} (hex uncommon).
+    out: list[Path] = []
+    for ext in (".elf", ".bin", ".hex", ".ihex"):
+        if ext == suf:
+            continue
+        cand = stem_dir / f"{image.stem}{ext}"
+        if cand.is_file():
+            out.append(cand)
+    return out
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("image", type=Path, help="Firmware .bin or .elf")
+    ap.add_argument("image", type=Path, help="Firmware .bin, .elf, or .hex")
     ap.add_argument("--ssid", help="STA SSID (max 32 bytes)")
     ap.add_argument("--psk", default=None, help="STA PSK (max 64 bytes); empty for open")
     ap.add_argument(
         "--address",
         type=lambda s: int(s, 0),
         default=None,
-        help=f"Absolute flash address for .bin (default: 0x{DEFAULT_ADDR:X})",
+        help=f"Absolute flash address for .bin/.hex (default: 0x{DEFAULT_ADDR:X})",
     )
     ap.add_argument("--show", action="store_true", help="Print current credentials and exit")
     ap.add_argument(
@@ -345,7 +530,7 @@ def main() -> int:
     ap.add_argument(
         "--no-sibling",
         action="store_true",
-        help="Do not also patch sibling .elf/.bin next to the input",
+        help="Do not also patch sibling .elf/.bin/.hex next to the input",
     )
     args = ap.parse_args()
 
@@ -363,28 +548,25 @@ def main() -> int:
         args.output.write_bytes(data)
         targets = [args.output]
     elif not args.no_sibling:
-        # Also touch companion image: J-Link / Ozone usually flash the .elf.
-        if args.image.suffix.lower() == ".bin":
-            sib = args.image.with_suffix(".elf")
-            if sib.is_file():
-                targets.append(sib)
-        elif args.image.suffix.lower() == ".elf":
-            sib = args.image.with_suffix(".bin")
-            if sib.is_file():
-                targets.append(sib)
+        targets.extend(sibling_targets(args.image))
 
     for t in targets:
         patch_one(t, None if show else args.ssid, None if show else psk, show, args.address)
 
-    if not show and len(targets) == 1 and args.image.suffix.lower() == ".bin":
+    if not show and any(image_kind(t) == "hex" for t in targets):
         print(
-            "note: flash this .bin at 0x00000000, OR also patch the .elf "
-            "(J-Link usually loads the .elf).",
+            "note: west flash typically programs .hex — siblings were kept in sync.",
+            file=sys.stderr,
+        )
+    elif not show and len(targets) == 1 and image_kind(args.image) == "bin":
+        print(
+            "note: flash this .bin at 0x00000000, OR also patch the .elf/.hex "
+            "(J-Link loads .elf; west flash often loads .hex).",
             file=sys.stderr,
         )
     if show and len(targets) > 1:
         print(
-            "note: J-Link typically programs the .elf — both images must match.",
+            "note: flash tool may use .elf or .hex — all siblings should match.",
             file=sys.stderr,
         )
     return 0
