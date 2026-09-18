@@ -10,11 +10,15 @@
  *
  * Zephyr SoC support uses the MK64F12 tree (superset / shared Kinetis K
  * enablement). Target core clock is 120 MHz via MCG PEE.
+ *
+ * GS1500M WiFi (UART AT @ 115200): PTD6/PTD7 UART0, PTD5 reset, PTE6 PGM,
+ * PTA11 INTF_SEL. SPI PTD10–14 reserved / unused by AT path.
  */
 
 /dts-v1/;
 
 #include <nxp/kinetis/nxp_k6x.dtsi>
+#include <nxp/kinetis/MK24FN1M0VDC12-pinctrl.h>
 #include <zephyr/dt-bindings/gpio/gpio.h>
 #include <freq.h>
 
@@ -24,6 +28,9 @@
 
 	aliases {
 		led0 = &led_pta29;
+		wifi-reset = &wifi_reset;
+		wifi-pgm = &wifi_pgm;
+		wifi-intf-sel = &wifi_intf_sel;
 	};
 
 	chosen {
@@ -44,6 +51,44 @@
 		led_pta29: led_0 {
 			gpios = <&gpioa 29 GPIO_ACTIVE_HIGH>;
 			label = "PTA29 LED";
+		};
+	};
+
+	/*
+	 * GS1500M control GPIOs. INTF_SEL UART polarity defaults to logical 1
+	 * (GainSpan UART=high / SPI=low; see GS_INTF_SEL_UART_LEVEL).
+	 * SPI PTD10–14 reserved / unused by AT.
+	 */
+	wifi_gs1500m {
+		wifi_reset: wifi_reset {
+			gpios = <&gpiod 5 GPIO_ACTIVE_LOW>;
+			label = "WIFI_RESET";
+		};
+
+		wifi_pgm: wifi_pgm {
+			gpios = <&gpioe 6 GPIO_ACTIVE_HIGH>;
+			label = "WIFI_PGM";
+		};
+
+		wifi_intf_sel: wifi_intf_sel {
+			gpios = <&gpioa 11 GPIO_ACTIVE_HIGH>;
+			label = "WIFI_INTF_SEL";
+			intf-sel-uart-level = <1>;
+		};
+
+		wifi_rtc_out: wifi_rtc_out {
+			gpios = <&gpiob 16 GPIO_ACTIVE_HIGH>;
+			label = "WIFI_RTC_OUT";
+		};
+
+		wifi_alarm1: wifi_alarm1 {
+			gpios = <&gpiod 9 GPIO_ACTIVE_HIGH>;
+			label = "WIFI_ALARM1";
+		};
+
+		wifi_spi_irq: wifi_spi_irq {
+			gpios = <&gpiod 10 GPIO_ACTIVE_HIGH>;
+			label = "WIFI_SPI_IRQ";
 		};
 	};
 };
@@ -69,6 +114,43 @@ zephyr_udc0: &usbotg {
 
 	cdc_acm_uart0: cdc_acm_uart0 {
 		compatible = "zephyr,cdc-acm-uart";
+	};
+};
+
+&pinctrl {
+	pinmux_uart0: pinmux_uart0 {
+		group0 {
+			pinmux = <UART0_RX_PTD6>;
+			drive-strength = "low";
+			slew-rate = "fast";
+			bias-pull-up;
+		};
+		group1 {
+			pinmux = <UART0_TX_PTD7>;
+			drive-strength = "low";
+			slew-rate = "fast";
+		};
+	};
+};
+
+&uart0 {
+	status = "okay";
+	current-speed = <115200>;
+	pinctrl-0 = <&pinmux_uart0>;
+	pinctrl-names = "default";
+
+	/*
+	 * GainSpan GS1500M Serial2WiFi offload (wifi_mgmt). Control GPIOs
+	 * match board wifi_* nodes / PE bring-up.
+	 */
+	gs1500m: gs1500m {
+		compatible = "gainspan,gs1500m-at";
+		/* Enabled by apps/zephyr_wifi overlay; keep off for blinky. */
+		status = "disabled";
+		reset-gpios = <&gpiod 5 GPIO_ACTIVE_LOW>;
+		pgm-gpios = <&gpioe 6 GPIO_ACTIVE_HIGH>;
+		intf-sel-gpios = <&gpioa 11 GPIO_ACTIVE_HIGH>;
+		target-speed = <115200>;
 	};
 };
 

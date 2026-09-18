@@ -40,7 +40,9 @@ void wb_log_set_level(wb_log_level_t min_level);
 wb_log_level_t wb_log_get_level(void);
 
 /**
- * Format and emit one log line: "<tag> message\\n".
+ * Format and emit one log line.
+ * With system time: "[YYYY-MM-DD HH:MM:SS.mmm][I] message\\n" (or
+ * "[T+sss.mmm][I] …" before NTP sync).
  * Returns bytes written to the backend, or 0 if filtered / no backend.
  */
 int wb_log_write(wb_log_level_t level, const char *fmt, ...);

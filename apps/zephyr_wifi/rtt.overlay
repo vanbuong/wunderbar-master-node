@@ -1,0 +1,19 @@
+/*
+ * RTT console overlay: drop USB CDC as zephyr,console so printk/printf
+ * go through SEGGER RTT instead of ttyACM.
+ */
+
+/ {
+	chosen {
+		/delete-property/ zephyr,console;
+		/delete-property/ zephyr,shell-uart;
+	};
+};
+
+&usbotg {
+	status = "disabled";
+};
+
+&cdc_acm_uart0 {
+	status = "disabled";
+};

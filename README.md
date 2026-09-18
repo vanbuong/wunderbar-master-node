@@ -39,15 +39,20 @@ Do **not** copy FRDM-K64F’s default **50 MHz** EXTAL settings. This module use
 ## Repository layout
 
 ```
-boards/relayr/wunderbar_master/   Zephyr HWMv2 board (12 MHz + PTA29 LED)
+boards/relayr/wunderbar_master/   Zephyr HWMv2 board (12 MHz + PTA29 LED + GS1500M pins)
 apps/zephyr_blinky/               Zephyr CMake blinky (USB CDC + RTT images)
+apps/zephyr_wifi/                 Zephyr GS1500M WiFi demo (USB + RTT)
 apps/mcux_freertos_blinky/        MCUXpresso SDK + FreeRTOS CMake blinky
+apps/mcux_freertos_wifi/          FreeRTOS GS1500M WiFi demo (USB + RTT)
 lib/log/                          Portable wb_log module (level + backends)
-tests/unity/                      Unity host unit tests for wb_log
+lib/wifi/gs1500m/                 Portable GS1500M Serial2WiFi AT library
+docs/gs1500m_pins.md              GS1500M UART/GPIO pin map
+tests/unity/                      Unity host tests (wb_log + AT parser)
 tests/ztest/wb_log/               Zephyr ztest suite for wb_log
+tests/ztest/gs1500m_at/           Zephyr ztest suite for AT parser
 west.yml                          Zephyr west manifest (v4.4.2)
 scripts/                          Host build helpers (firmware + tests)
-.github/workflows/build.yml       CI: four images + Unity + ztest
+.github/workflows/build.yml       CI: blinky + WiFi images + Unity + ztest
 ```
 
 LED: **PTA29** (`GPIOA` pin 29). Default polarity is active-high; flip it in the DTS / `LED_ACTIVE_HIGH` if your LED is wired active-low.
@@ -56,6 +61,59 @@ USB: dedicated **USB0_DP / USB0_DM** (no extra pinmux). The USB images enumerate
 
 A second firmware per OS prints the same blink log over **SEGGER RTT** (J-Link SWD; no USB cable required).
 
+### GS1500M WiFi (UART AT)
+
+Transport is **UART0 @ 115200 8N1** (PTD6 RX / PTD7 TX). Control pins match legacy PE: **PTD5** reset (GPIO input idle; optional low pulse), **PTE6** PGM (**uninitialized / floating** — PE has no PTE6 code), **PTA11** INTF_SEL (left alone, auto-tried). See [`docs/gs1500m_pins.md`](docs/gs1500m_pins.md).
+
+Portable library: `lib/wifi/gs1500m` (AT parser, join, sockets, SSL, HTTP, MQTT byte-pipe, Limited AP, user SM) with FreeRTOS and Zephyr HALs under `port/`.
+
+```bash
+./scripts/build.sh wifi            # both OS × USB/RTT WiFi images
+./scripts/build.sh freertos-wifi
+./scripts/build.sh zephyr-wifi
+```
+
+#### Patchable SSID / PSK (no rebuild)
+
+Credentials sit in a **128-byte flash slot at `0x0007E000`** (magic `WBWIFIv1`, then SSID ≤32 and PSK ≤64). Build once, then patch:
+
+```bash
+# FreeRTOS
+./scripts/build.sh freertos-wifi
+./scripts/patch_wifi_cred.py build-freertos-wifi-rtt/wunderbar_freertos_wifi.bin \
+  --ssid MyNetwork --psk 'secret-pass'
+
+# Zephyr (RTT image) — patch the .elf; siblings .bin/.hex are updated too
+./scripts/build.sh zephyr-wifi
+./scripts/patch_wifi_cred.py build-zephyr-wifi-rtt/zephyr/zephyr.elf \
+  --ssid MyNetwork --psk 'secret-pass'
+./scripts/patch_wifi_cred.py build-zephyr-wifi-rtt/zephyr/zephyr.elf --show
+```
+
+The script patches sibling `.elf` / `.bin` / `.hex` next to the input automatically.
+
+**Which file does your flasher use?**
+
+| Tool | Typical image | What to flash after patch |
+|------|---------------|---------------------------|
+| J-Link / Ozone / MCUXpresso | `.elf` | patched `zephyr.elf` / FreeRTOS `.elf` |
+| `west flash` | `.hex` | patched `zephyr.hex` (or flash the `.elf` explicitly) |
+| raw binary | `.bin` | patched `.bin` at address `0x00000000` |
+
+If you patch `.elf`/`.bin` but `west flash` still loads an **unpatched `zephyr.hex`**, RTT shows `ssid=(none)` / `valid=0` even though `--show` on the `.elf` looks correct.
+
+Firmware reads the slot at absolute flash `0x7E000`. RTT should show `cred @0x7e000 … valid=1` and your SSID. `valid=0` with magic `FFFFFF…` means that flash word was never programmed (wrong image or hex without the slot).
+
+At runtime the demo prefers the flash slot; if SSID is empty it falls back to compile-time `WB_WIFI_SSID` / `WB_WIFI_PSK` (or Zephyr `CONFIG_WB_WIFI_*`).
+
+Optional compile-time defaults (do **not** commit secrets):
+
+```bash
+cmake -S apps/mcux_freertos_wifi -B build-freertos-wifi -G Ninja \
+  -DMCU_SDK_PATH=$PWD/.deps/mcux-sdk -DLOG_BACKEND=USB \
+  -DWB_WIFI_SSID=\"MySSID\" -DWB_WIFI_PSK=\"MyPSK\"
+```
+
 ---
 
 ## Build both (Zephyr + FreeRTOS)
@@ -63,9 +121,10 @@ A second firmware per OS prints the same blink log over **SEGGER RTT** (J-Link S
 From this repository, after installing west, CMake, Ninja, and an ARM GCC (Zephyr SDK **or** `arm-none-eabi-gcc`):
 
 ```bash
-./scripts/build.sh          # all four images (Zephyr/FreeRTOS × USB/RTT)
-./scripts/build.sh zephyr   # Zephyr USB + RTT
-./scripts/build.sh freertos # MCUX + FreeRTOS USB + RTT
+./scripts/build.sh          # blinky four images (Zephyr/FreeRTOS × USB/RTT)
+./scripts/build.sh zephyr   # Zephyr blinky USB + RTT
+./scripts/build.sh freertos # MCUX + FreeRTOS blinky USB + RTT
+./scripts/build.sh wifi     # WiFi demos (both OS × USB/RTT)
 ./scripts/build.sh test     # Unity (host) + Zephyr ztest
 ```
 
@@ -73,12 +132,16 @@ Outputs:
 
 | Image | Path |
 |-------|------|
-| Zephyr USB CDC | `build-zephyr/zephyr/zephyr.elf` |
-| Zephyr RTT | `build-zephyr-rtt/zephyr/zephyr.elf` |
-| FreeRTOS USB CDC | `build-freertos/wunderbar_freertos_blinky.elf` |
-| FreeRTOS RTT | `build-freertos-rtt/wunderbar_freertos_blinky.elf` |
+| Zephyr blinky USB CDC | `build-zephyr/zephyr/zephyr.elf` |
+| Zephyr blinky RTT | `build-zephyr-rtt/zephyr/zephyr.elf` |
+| Zephyr WiFi USB CDC | `build-zephyr-wifi/zephyr/zephyr.elf` |
+| Zephyr WiFi RTT | `build-zephyr-wifi-rtt/zephyr/zephyr.elf` |
+| FreeRTOS blinky USB CDC | `build-freertos/wunderbar_freertos_blinky.elf` |
+| FreeRTOS blinky RTT | `build-freertos-rtt/wunderbar_freertos_blinky.elf` |
+| FreeRTOS WiFi USB CDC | `build-freertos-wifi/wunderbar_freertos_wifi.elf` |
+| FreeRTOS WiFi RTT | `build-freertos-wifi-rtt/wunderbar_freertos_wifi.elf` |
 
-GitHub Actions builds the four images and runs **Unity** + **ztest** on every push/PR.
+GitHub Actions builds blinky + WiFi images and runs **Unity** + **ztest** on every push/PR.
 
 ### Log module (`lib/log`)
 
@@ -95,7 +158,11 @@ Both firmwares use **`wb_log`** (`WB_LOGI` / `WB_LOGE` / …). Messages look lik
 ./scripts/fetch_unity.sh
 cmake -S tests/unity -B build-unity -G Ninja && cmake --build build-unity && ctest --test-dir build-unity
 west build -b unit_testing tests/ztest/wb_log -t run
+west build -b unit_testing tests/ztest/gs1500m_at -t run
+west build -b unit_testing tests/ztest/gs1500m_wifi -t run
 ```
+
+Host Unity covers `wb_log`, the AT ESC/line parser, and the full WiFi library (join, sockets, SSL, HTTP, MQTT pipe, Limited AP, user SM) via a stub UART platform in `tests/common/`.
 
 ---
 

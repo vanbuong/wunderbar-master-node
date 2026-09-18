@@ -1,0 +1,6 @@
+/*
+ * Enable GainSpan GS1500M WiFi offload on UART0 for this application.
+ */
+&gs1500m {
+	status = "okay";
+};

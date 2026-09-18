@@ -1,0 +1,27 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: Apache-2.0
+
+description: GainSpan GS1500M Serial2WiFi (AT UART offload)
+
+compatible: "gainspan,gs1500m-at"
+
+include: uart-device.yaml
+
+properties:
+  reset-gpios:
+    type: phandle-array
+    description: WIFI_!RESET (active low)
+
+  pgm-gpios:
+    type: phandle-array
+    description: |
+      WIFI_PGM. High during reset enters flash-download mode; leave floating
+      or drive low for normal Serial2WiFi run mode.
+
+  intf-sel-gpios:
+    type: phandle-array
+    description: WIFI_INTF_SEL (UART vs SPI select)
+
+  target-speed:
+    type: int
+    description: Preferred UART baud after bring-up (default 115200)
