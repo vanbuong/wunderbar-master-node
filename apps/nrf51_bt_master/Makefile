@@ -32,6 +32,8 @@ SRC_FILES := \
   $(SDK)/components/drivers_nrf/spi_slave/nrf_drv_spis.c \
   $(SDK)/components/drivers_nrf/nrf_soc_nosd/nrf_nvic.c \
   $(SDK)/components/drivers_nrf/nrf_soc_nosd/nrf_soc.c \
+  $(SDK)/external/segger_rtt/SEGGER_RTT.c \
+  $(SDK)/external/segger_rtt/SEGGER_RTT_printf.c \
   $(SDK)/components/toolchain/system_nrf51.c \
   $(SDK)/components/toolchain/gcc/gcc_startup_nrf51.S
 
@@ -53,6 +55,7 @@ INC := \
   -I$(SDK)/components/libraries/log \
   -I$(SDK)/components/libraries/log/src \
   -I$(SDK)/components/boards \
+  -I$(SDK)/external/segger_rtt \
   -I$(SDK)/components/softdevice/s130/headers \
   -I$(SDK)/components/softdevice/s130/headers/nrf51
 
@@ -80,7 +83,7 @@ OBJ := $(addprefix $(OUTPUT_DIR)/,$(notdir $(SRC_FILES:.c=.o)))
 OBJ := $(OBJ:.S=.o)
 OBJ := $(OBJ:.s=.o)
 
-vpath %.c $(dir $(SRC_FILES)) $(sort $(dir $(filter %.c,$(SRC_FILES))))
+vpath %.c $(sort $(dir $(SRC_FILES)))
 vpath %.S $(SDK)/components/toolchain/gcc
 vpath %.s $(SDK)/components/toolchain/gcc
 

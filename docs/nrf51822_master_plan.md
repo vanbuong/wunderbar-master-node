@@ -67,6 +67,7 @@ Central discovers by service UUID filter, not legacy names/passkeys.
 - Blink LED P0.29
 - SPIS + fixed 64-byte `PONG`/`IDLE` frames
 - Assert GP1 when TX ready
+- **SEGGER RTT** logging on BT SWD (`WB_RTT_PRINTF`)
 - Build against external `NRF5_SDK_ROOT` (12.1.0)
 
 ### Phase 1 — SPI host protocol

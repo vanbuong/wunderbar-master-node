@@ -1,7 +1,8 @@
-# Minimal sdk_config for Phase 0 (SPIS + clocks, no SoftDevice)
+# Minimal sdk_config for Phase 0 (SPIS + SEGGER RTT, no SoftDevice)
+# Include as sdk_config.h (Nordic drivers expect this name).
 
-#ifndef WB_NRF51_SDK_CONFIG_H
-#define WB_NRF51_SDK_CONFIG_H
+#ifndef SDK_CONFIG_H
+#define SDK_CONFIG_H
 
 #define NRF_LOG_ENABLED 0
 
@@ -22,4 +23,12 @@
 #define NRF_SDH_ENABLED 0
 #define NRF_SECTION_ITER_ENABLED 0
 
-#endif
+/* SEGGER RTT (used via wb_rtt.h / SEGGER_RTT_printf) */
+#define SEGGER_RTT_CONFIG_BUFFER_SIZE_UP 512
+#define SEGGER_RTT_CONFIG_MAX_NUM_UP_BUFFERS 2
+#define SEGGER_RTT_CONFIG_BUFFER_SIZE_DOWN 16
+#define SEGGER_RTT_CONFIG_MAX_NUM_DOWN_BUFFERS 2
+#define SEGGER_RTT_CONFIG_DEFAULT_MODE 0
+#define SEGGER_RTT_CONFIG_MAX_INT_PRIORITY 2
+
+#endif /* SDK_CONFIG_H */

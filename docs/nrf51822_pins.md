@@ -19,12 +19,12 @@ WiFi uses a **different** SPI bank (`PTD10–14`); do not mux them together.
 
 ## nRF onboard
 
-| Function | Pin |
-|----------|-----|
-| HF crystal 16 MHz | XC1 / XC2 |
-| LF crystal 32.768 kHz | P0.26 / P0.27 |
-| Status LED (`BT_LED1`) | **P0.29** |
-| SWDIO / SWDCLK | pins 23 / 24 |
+| Function | Pin | Notes |
+|----------|-----|-------|
+| HF crystal 16 MHz | XC1 / XC2 | |
+| LF crystal 32.768 kHz | P0.26 / P0.27 | |
+| Status LED (`BT_LED1`) | **P0.29** | Active high |
+| SWDIO / SWDCLK | pins 23 / 24 | **SEGGER RTT** via J-Link RTT Viewer / Ozone / SES |
 
 ## See also
 
