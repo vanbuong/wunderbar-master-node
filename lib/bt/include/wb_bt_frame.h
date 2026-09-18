@@ -46,6 +46,19 @@ typedef enum {
 	WB_BT_CMD_SET_SENSOR_CFG = 0x06,
 } wb_bt_cmd_t;
 
+/** RSP / EVT status in payload[0] when signalling an error. */
+typedef enum {
+	WB_BT_ERR_OK           = 0x00,
+	WB_BT_ERR_BAD_CRC      = 0x01,
+	WB_BT_ERR_UNKNOWN_CMD  = 0x02,
+	WB_BT_ERR_BAD_PARAM    = 0x03,
+	WB_BT_ERR_BUSY         = 0x04,
+} wb_bt_err_t;
+
+/** GET_INFO caps byte (payload[0]). */
+#define WB_BT_CAP_SPI   (1u << 0)
+#define WB_BT_CAP_BLE   (1u << 1)
+
 typedef struct __attribute__((packed)) {
 	uint8_t magic[4];
 	uint8_t version;
@@ -138,6 +151,42 @@ static inline bool wb_bt_frame_valid(const wb_bt_frame_t *f)
 	crc = wb_bt_crc16((const uint8_t *)f,
 			  offsetof(wb_bt_frame_t, crc16));
 	return crc == f->crc16;
+}
+
+static inline void wb_bt_frame_set_payload(wb_bt_frame_t *f,
+					   const void *data, uint16_t len)
+{
+	uint16_t i;
+
+	if (!f) {
+		return;
+	}
+	if (len > WB_BT_PAYLOAD_MAX) {
+		len = WB_BT_PAYLOAD_MAX;
+	}
+	f->payload_len = len;
+	if (data && len > 0) {
+		const uint8_t *src = (const uint8_t *)data;
+
+		for (i = 0; i < len; i++) {
+			f->payload[i] = src[i];
+		}
+	}
+	for (i = len; i < WB_BT_PAYLOAD_MAX; i++) {
+		f->payload[i] = 0;
+	}
+}
+
+static inline void wb_bt_frame_make(wb_bt_frame_t *f, uint8_t type,
+				    uint8_t seq, uint8_t field_id,
+				    const void *payload, uint16_t len)
+{
+	wb_bt_frame_init(f);
+	f->seq = seq;
+	f->type = type;
+	f->field_id = field_id;
+	wb_bt_frame_set_payload(f, payload, len);
+	wb_bt_frame_finalize(f);
 }
 
 #ifdef __cplusplus

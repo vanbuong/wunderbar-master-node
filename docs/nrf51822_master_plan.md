@@ -62,17 +62,18 @@ Central discovers by service UUID filter, not legacy names/passkeys.
 
 ## Phased delivery
 
-### Phase 0 — Bring-up (current scaffold)
+### Phase 0 — Bring-up ✓
 - App: `apps/nrf51_bt_master/`
 - Blink LED P0.29
 - SPIS + fixed 64-byte `PONG`/`IDLE` frames
 - Assert GP1 when TX ready
 - **SEGGER RTT** logging on BT SWD (`WB_RTT_PRINTF`)
-- Build against external `NRF5_SDK_ROOT` (12.1.0)
+- Build against external `NRF5_SDK_ROOT` (12.1.0); CI with GCC 10.3.1
 
-### Phase 1 — SPI host protocol
-- Full `wb_bt_frame` TX queue, CRC check, `PING`/`PONG`/`CMD`
-- MK24 Zephyr SPI master stub + DTS pins
+### Phase 1 — SPI host protocol (current)
+- Full `wb_bt_frame` TX queue, CRC check, `PING`/`PONG`/`CMD`/`RSP`
+- `GET_INFO` RSP with caps + fw id
+- MK24 Zephyr SPI master stub: `apps/zephyr_bt_host/` + board SPI0 PTA14–17
 
 ### Phase 2 — BLE Central single slave
 - S130 init, scan, connect to one test peripheral (nRF DK or custom sensor)

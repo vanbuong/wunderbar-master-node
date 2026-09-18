@@ -70,13 +70,26 @@ Assign when GATT services are defined (temp, motion, light, …). `0xFF` = N/A.
 
 ## Ready / flow
 
-1. nRF enqueues `EVT`/`DATA`/`RSP` → asserts GP1.  
+1. nRF enqueues `EVT`/`DATA`/`RSP`/`PONG` → asserts GP1.  
 2. Host sees GP1, pulls CSN, clocks 64 bytes (may send `CMD` or `IDLE` on MOSI).  
 3. nRF returns one queued frame on MISO (or `IDLE`).  
 4. If queue still non-empty, GP1 stays asserted; else deasserted.  
 5. Host may also poll periodically with `PING` even if GP1 is low.
 
-Corrupt CRC → host discards; nRF may reply `RSP` with error code later (Phase 1).
+**Full duplex latency:** the frame on MISO is whatever was already queued *before*
+this clock. A `PING`/`CMD` on MOSI is handled after the transfer completes; the
+reply (`PONG`/`RSP`) is returned on a **subsequent** transaction (often right
+after GP1 asserts). Host stubs should drain with `IDLE` until the expected type
+appears.
+
+Corrupt CRC → nRF may reply `RSP` with `payload[0]=WB_BT_ERR_BAD_CRC` (Phase 1).
+
+### `GET_INFO` RSP payload
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0 | 1 | caps (`WB_BT_CAP_SPI`, `WB_BT_CAP_BLE`, …) |
+| 1… | ≤47 | NUL-terminated firmware id string |
 
 ## Versioning
 

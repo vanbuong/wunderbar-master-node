@@ -51,7 +51,8 @@ docs/nrf51822_pins.md             nRF51822 ↔ MK24 SPI/GPIO pin map
 docs/nrf51822_spi_host.md         SPI frame ABI v1 (WBBT)
 docs/nrf51822_master_plan.md      BLE Central + SPI slave firmware plan
 docs/zephyr_gs1500m_wifi_offload.md  Zephyr wifi_mgmt / net_offload notes
-apps/nrf51_bt_master/             nRF51822 Phase 0 (LED + SPIS) for SDK 12.1
+apps/nrf51_bt_master/             nRF51822 Phase 1 (SPI queue + CMD/RSP) for SDK 12.1
+apps/zephyr_bt_host/              Zephyr MK24 SPI master stub (WBBT host)
 lib/bt/                           Shared BT SPI frame header (host + nRF)
 tests/unity/                      Unity host tests (wb_log + AT parser)
 tests/ztest/wb_log/               Zephyr ztest suite for wb_log

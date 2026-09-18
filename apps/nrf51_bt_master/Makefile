@@ -22,6 +22,7 @@ SDK := $(NRF5_SDK_ROOT)
 
 SRC_FILES := \
   src/main.c \
+  src/wb_txq.c \
   $(SDK)/components/libraries/util/app_error.c \
   $(SDK)/components/libraries/util/app_error_weak.c \
   $(SDK)/components/libraries/util/app_util_platform.c \

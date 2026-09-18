@@ -1,0 +1,8 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: Apache-2.0
+
+description: WunderBar nRF51822 BT SPI slave (host side)
+
+compatible: "relayr,bt-nrf51822"
+
+include: [spi-device.yaml]

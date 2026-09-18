@@ -95,10 +95,12 @@
 	};
 
 	/*
-	 * nRF51822 host handshake (SPI PTA14–17 wired in pinctrl later).
-	 * GP1 = ready-to-send IRQ from nRF; GP2 = host control / reserved.
+	 * nRF51822 host link: SPI0 on PTA14–17 + GP1/GP2 handshake.
+	 * CS driven as GPIO (cs-gpios); SCK/SOUT/SIN via DSPI ALT2.
 	 */
 	bt_nrf51822 {
+		compatible = "gpio-keys";
+
 		bt_ready: bt_ready {
 			gpios = <&gpioa 10 GPIO_ACTIVE_HIGH>;
 			label = "BT_MCU_GP1";
@@ -149,6 +151,19 @@ zephyr_udc0: &usbotg {
 			slew-rate = "fast";
 		};
 	};
+
+	/* BT SPI0: PTA15 SCK, PTA16 SOUT (MOSI), PTA17 SIN (MISO).
+	 * PTA14 CS is GPIO via cs-gpios (not PCS0 mux).
+	 */
+	pinmux_spi0: pinmux_spi0 {
+		group0 {
+			pinmux = <SPI0_SCK_PTA15>,
+				 <SPI0_SOUT_PTA16>,
+				 <SPI0_SIN_PTA17>;
+			drive-strength = "low";
+			slew-rate = "fast";
+		};
+	};
 };
 
 &uart0 {
@@ -169,6 +184,24 @@ zephyr_udc0: &usbotg {
 		pgm-gpios = <&gpioe 6 GPIO_ACTIVE_HIGH>;
 		intf-sel-gpios = <&gpioa 11 GPIO_ACTIVE_HIGH>;
 		target-speed = <115200>;
+	};
+};
+
+/*
+ * SPI0 ↔ nRF51822 (BT_SPI_*). Enabled by apps/zephyr_bt_host overlay so
+ * blinky/wifi builds stay lean.
+ */
+&spi0 {
+	status = "disabled";
+	pinctrl-0 = <&pinmux_spi0>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpioa 14 GPIO_ACTIVE_LOW>;
+
+	bt_nrf51822_spi: bt-nrf51822@0 {
+		compatible = "relayr,bt-nrf51822";
+		reg = <0>;
+		spi-max-frequency = <1000000>;
+		status = "disabled";
 	};
 };
 

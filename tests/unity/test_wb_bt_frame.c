@@ -49,11 +49,27 @@ void test_idle_ping_types(void)
 	TEST_ASSERT_EQUAL_UINT8('T', f.magic[3]);
 }
 
+void test_frame_make_helpers(void)
+{
+	wb_bt_frame_t f;
+	uint8_t pl[] = { WB_BT_CAP_SPI, 'o', 'k', '\0' };
+
+	wb_bt_frame_make(&f, WB_BT_TYPE_RSP, 3, WB_BT_CMD_GET_INFO, pl,
+			 sizeof(pl));
+	TEST_ASSERT_TRUE(wb_bt_frame_valid(&f));
+	TEST_ASSERT_EQUAL_UINT8(WB_BT_TYPE_RSP, f.type);
+	TEST_ASSERT_EQUAL_UINT8(3, f.seq);
+	TEST_ASSERT_EQUAL_UINT8(WB_BT_CMD_GET_INFO, f.field_id);
+	TEST_ASSERT_EQUAL_UINT16(sizeof(pl), f.payload_len);
+	TEST_ASSERT_EQUAL_UINT8(WB_BT_CAP_SPI, f.payload[0]);
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
 	RUN_TEST(test_frame_size_is_64);
 	RUN_TEST(test_frame_roundtrip_crc);
 	RUN_TEST(test_idle_ping_types);
+	RUN_TEST(test_frame_make_helpers);
 	return UNITY_END();
 }

@@ -1,7 +1,8 @@
-# nRF51822 BT master (Phase 0)
+# nRF51822 BT master (Phase 1)
 
-LED blink + SPI slave (`wb_bt_frame`) + GP1 ready IRQ + **SEGGER RTT** logging.
-**No SoftDevice** in Phase 0 — flash this app alone for host-link bring-up.
+SPI slave with **TX queue**, CRC checks, `PING`/`PONG`, and `CMD`/`RSP`
+(`GET_INFO`). LED + GP1 ready + **SEGGER RTT**. **No SoftDevice** yet —
+flash this app alone for host-link bring-up.
 
 ## Requirements
 
@@ -19,6 +20,8 @@ cd apps/nrf51_bt_master
 make
 make flash   # if nrfjprog available
 ```
+
+Pair with MK24 host stub: `apps/zephyr_bt_host/`.
 
 ## RTT logging
 
@@ -38,12 +41,14 @@ Up-buffer mode is **non-blocking skip** so a disconnected viewer never stalls SP
 
 See `docs/nrf51822_pins.md`. SPIS on P0.00/01/03/05, ready P0.02, LED P0.29.
 
-## Phase 0 behaviour
+## Phase 1 behaviour
 
 1. LED toggles ~1 Hz  
-2. Asserts GP1 with an `IDLE` frame queued  
-3. On each SPI transaction, parses host frame; replies `PONG` to `PING`, else `IDLE`  
-4. RTT logs SPI events and a 5 s heartbeat  
+2. Asserts GP1 when the TX queue is non-empty  
+3. On each SPI transaction: CRC-check host frame; `PING`→enqueue `PONG`;
+   `CMD GET_INFO`→enqueue `RSP`; unknown/`CMD` BLE ops → error RSP  
+4. MISO returns the previously queued frame (or synthetic `IDLE`)  
+5. RTT logs SPI events and a 5 s heartbeat  
 
 ## Later phases
 

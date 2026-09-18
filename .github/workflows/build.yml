@@ -57,6 +57,22 @@ jobs:
                -DEXTRA_CONF_FILE=rtt.conf \
                -DEXTRA_DTC_OVERLAY_FILE=rtt.overlay
 
+      - name: Build BT host USB CDC
+        run: |
+          west build -b wunderbar_master/mk64f12 \
+            wunderbar-master-node/apps/zephyr_bt_host \
+            -d build-zephyr-bt \
+            -- -DBOARD_ROOT="${GITHUB_WORKSPACE}/wunderbar-master-node"
+
+      - name: Build BT host SEGGER RTT
+        run: |
+          west build -b wunderbar_master/mk64f12 \
+            wunderbar-master-node/apps/zephyr_bt_host \
+            -d build-zephyr-bt-rtt \
+            -- -DBOARD_ROOT="${GITHUB_WORKSPACE}/wunderbar-master-node" \
+               -DEXTRA_CONF_FILE=rtt.conf \
+               -DEXTRA_DTC_OVERLAY_FILE=rtt.overlay
+
       - name: ztest wb_log
         run: |
           west build -b unit_testing \
@@ -113,6 +129,24 @@ jobs:
             build-zephyr-wifi-rtt/zephyr/zephyr.elf
             build-zephyr-wifi-rtt/zephyr/zephyr.bin
             build-zephyr-wifi-rtt/zephyr/zephyr.hex
+
+      - name: Upload BT host USB ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: zephyr-bt-host-usb
+          path: |
+            build-zephyr-bt/zephyr/zephyr.elf
+            build-zephyr-bt/zephyr/zephyr.bin
+            build-zephyr-bt/zephyr/zephyr.hex
+
+      - name: Upload BT host RTT ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: zephyr-bt-host-rtt
+          path: |
+            build-zephyr-bt-rtt/zephyr/zephyr.elf
+            build-zephyr-bt-rtt/zephyr/zephyr.bin
+            build-zephyr-bt-rtt/zephyr/zephyr.hex
 
   freertos:
     name: FreeRTOS blinky + WiFi
