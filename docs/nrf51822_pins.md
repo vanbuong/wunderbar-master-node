@@ -29,3 +29,4 @@ WiFi uses a **different** SPI bank (`PTD10–14`); do not mux them together.
 ## See also
 
 - [`nrf51822_master_plan.md`](nrf51822_master_plan.md) — firmware architecture and phases
+- [`nrf51822_spi_host.md`](nrf51822_spi_host.md) — SPI frame ABI v1

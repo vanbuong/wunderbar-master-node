@@ -31,6 +31,8 @@
 		wifi-reset = &wifi_reset;
 		wifi-pgm = &wifi_pgm;
 		wifi-intf-sel = &wifi_intf_sel;
+		bt-ready = &bt_ready;
+		bt-ctrl = &bt_ctrl;
 	};
 
 	chosen {
@@ -89,6 +91,22 @@
 		wifi_spi_irq: wifi_spi_irq {
 			gpios = <&gpiod 10 GPIO_ACTIVE_HIGH>;
 			label = "WIFI_SPI_IRQ";
+		};
+	};
+
+	/*
+	 * nRF51822 host handshake (SPI PTA14–17 wired in pinctrl later).
+	 * GP1 = ready-to-send IRQ from nRF; GP2 = host control / reserved.
+	 */
+	bt_nrf51822 {
+		bt_ready: bt_ready {
+			gpios = <&gpioa 10 GPIO_ACTIVE_HIGH>;
+			label = "BT_MCU_GP1";
+		};
+
+		bt_ctrl: bt_ctrl {
+			gpios = <&gpioa 13 GPIO_ACTIVE_HIGH>;
+			label = "BT_MCU_GP2";
 		};
 	};
 };

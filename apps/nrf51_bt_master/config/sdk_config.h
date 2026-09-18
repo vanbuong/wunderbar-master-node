@@ -1,0 +1,25 @@
+# Minimal sdk_config for Phase 0 (SPIS + clocks, no SoftDevice)
+
+#ifndef WB_NRF51_SDK_CONFIG_H
+#define WB_NRF51_SDK_CONFIG_H
+
+#define NRF_LOG_ENABLED 0
+
+#define CLOCK_ENABLED 1
+#define CLOCK_CONFIG_XTAL_FREQ NRF_CLOCK_XTALFREQ_Default
+#define CLOCK_CONFIG_LF_SRC 1
+#define CLOCK_CONFIG_IRQ_PRIORITY 3
+
+#define SPIS_ENABLED 1
+#define SPIS1_ENABLED 1
+#define SPIS_DEFAULT_CONFIG_IRQ_PRIORITY 3
+#define SPIS_CONFIG_LOG_ENABLED 0
+
+#define GPIOTE_ENABLED 0
+#define UART_ENABLED 0
+#define APP_UART_ENABLED 0
+
+#define NRF_SDH_ENABLED 0
+#define NRF_SECTION_ITER_ENABLED 0
+
+#endif
