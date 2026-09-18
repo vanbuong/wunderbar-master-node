@@ -38,6 +38,10 @@ After association the driver runs module SNTP (`AT+NTIMESYNC`), then
 mistaken for the next `NCTCP` response. Client opens also flush (and retry
 once) before treating the open as failed.
 
+DNS: NSTAT DNS servers are applied to Zephyr `dns_resolve` when
+`CONFIG_DNS_RESOLVER=y`. Apps can also call `gs1500m_dns_lookup()` /
+`gs_wifi_dns_lookup()` (`AT+DNSLOOKUP`) for module-side resolution.
+
 ## Next milestones
 
 1. TLS via host mbedTLS (or `AT+SSLOPEN` offload)

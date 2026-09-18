@@ -23,8 +23,12 @@
 #include <zephyr/net/wifi_mgmt.h>
 #include <zephyr/net/conn_mgr/connectivity_wifi_mgmt.h>
 #include <zephyr/net/net_ip.h>
+#if defined(CONFIG_DNS_RESOLVER)
+#include <zephyr/net/dns_resolve.h>
+#endif
 
 #include "wb_time.h"
+#include "gs1500m_api.h"
 
 LOG_MODULE_REGISTER(wifi_gs1500m, CONFIG_WIFI_LOG_LEVEL);
 
@@ -48,6 +52,8 @@ static void gs_apply_ipv4_from_status(struct gs1500m_data *data,
 	struct net_in_addr addr;
 	struct net_in_addr gw;
 	struct net_in_addr nm;
+	const char *dns_servers[3];
+	const char *dns0 = NULL;
 
 	if (!data->iface || !st || !st->ip[0]) {
 		return;
@@ -62,6 +68,51 @@ static void gs_apply_ipv4_from_status(struct gs1500m_data *data,
 	if (st->subnet[0] && net_addr_pton(NET_AF_INET, st->subnet, &nm) == 0) {
 		(void)net_if_ipv4_set_netmask_by_addr(data->iface, &addr, &nm);
 	}
+
+	/* Prefer AP-advertised DNS; fall back to public resolvers. */
+	if (st->dns[0]) {
+		dns0 = st->dns;
+	}
+	dns_servers[0] = dns0 ? dns0 : "8.8.8.8";
+	dns_servers[1] = dns0 ? "8.8.8.8" : "1.1.1.1";
+	dns_servers[2] = NULL;
+#if defined(CONFIG_DNS_RESOLVER)
+	{
+		int ret = dns_resolve_reconfigure(dns_resolve_get_default(),
+						  dns_servers, NULL,
+						  DNS_SOURCE_DHCPV4);
+
+		if (ret) {
+			LOG_WRN("dns reconfigure failed (%d)", ret);
+		} else {
+			LOG_INF("dns servers %s, %s", dns_servers[0],
+				dns_servers[1] ? dns_servers[1] : "-");
+		}
+	}
+#else
+	ARG_UNUSED(dns_servers);
+	LOG_DBG("dns from NSTAT=%s (CONFIG_DNS_RESOLVER=n)",
+		dns0 ? dns0 : "(none)");
+#endif
+}
+
+int gs1500m_dns_lookup(const char *host, char *ip, size_t ip_len)
+{
+	struct gs1500m_data *data = gs1500m_dev_data();
+	gs_msg_id_t id;
+
+	if (!host || !host[0] || !ip || ip_len < 8U) {
+		return -EINVAL;
+	}
+	if (!data || !data->initialized) {
+		return -EAGAIN;
+	}
+
+	k_mutex_lock(&data->lock, K_FOREVER);
+	id = gs_wifi_dns_lookup(host, ip, ip_len);
+	k_mutex_unlock(&data->lock);
+
+	return (id == GS_MSG_OK) ? 0 : -EIO;
 }
 
 static void gs_rx_thread_fn(void *p1, void *p2, void *p3)

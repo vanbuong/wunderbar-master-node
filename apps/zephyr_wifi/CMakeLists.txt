@@ -15,6 +15,7 @@ zephyr_linker_sources(SECTIONS ${CMAKE_CURRENT_SOURCE_DIR}/wb_wifi_cred.ld)
 target_include_directories(app PRIVATE
   ${WB_WIFI_CRED_INCLUDE_DIRS}
   ${WB_TIME_INCLUDE_DIRS}
+  ${WB_ROOT}/drivers/wifi/gs1500m
 )
 
 target_sources(app PRIVATE

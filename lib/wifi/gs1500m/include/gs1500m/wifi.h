@@ -138,6 +138,12 @@ uint32_t gs_wifi_last_unix_time(void);
 /** Convenience: security + PSK + DHCP + join for infrastructure STA. */
 gs_msg_id_t gs_wifi_join_wpa(const char *ssid, const char *psk);
 
+/**
+ * Resolve @p host to an IPv4 dotted-quad via AT+DNSLOOKUP.
+ * On success writes into @p ip (NUL-terminated).
+ */
+gs_msg_id_t gs_wifi_dns_lookup(const char *host, char *ip, size_t ip_len);
+
 #ifdef __cplusplus
 }
 #endif

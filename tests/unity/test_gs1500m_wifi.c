@@ -121,6 +121,23 @@ void test_socket_tcp_client_parses_cid(void)
 	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+NCTCP=10.0.0.2,1883\r\n"));
 }
 
+void test_wifi_dns_lookup_parses_ip(void)
+{
+	char ip[16];
+	gs_msg_id_t id;
+
+	ip[0] = 'x';
+	id = gs_wifi_dns_lookup("pool.ntp.org", ip, sizeof(ip));
+	TEST_ASSERT_EQUAL_INT(GS_MSG_OK, id);
+	TEST_ASSERT_EQUAL_STRING("162.159.200.1", ip);
+	TEST_ASSERT_TRUE(gs_stub_tx_contains(&s_stub, "AT+DNSLOOKUP=pool.ntp.org,2,3\r\n"));
+
+	TEST_ASSERT_EQUAL_INT(GS_MSG_INVALID_INPUT,
+			      gs_wifi_dns_lookup(NULL, ip, sizeof(ip)));
+	TEST_ASSERT_EQUAL_INT(GS_MSG_INVALID_INPUT,
+			      gs_wifi_dns_lookup("x", NULL, 16));
+}
+
 void test_socket_udp_server_close(void)
 {
 	uint8_t cid = GS_AT_INVALID_CID;
@@ -353,6 +370,7 @@ int main(void)
 	RUN_TEST(test_wifi_get_rssi);
 	RUN_TEST(test_wifi_invalid_args);
 	RUN_TEST(test_socket_tcp_client_parses_cid);
+	RUN_TEST(test_wifi_dns_lookup_parses_ip);
 	RUN_TEST(test_socket_udp_server_close);
 	RUN_TEST(test_socket_send_bulk_esc_z);
 	RUN_TEST(test_ssl_open_and_cert_delete);

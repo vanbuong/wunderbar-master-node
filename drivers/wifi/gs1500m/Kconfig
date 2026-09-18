@@ -11,9 +11,10 @@ menuconfig WIFI_GS1500M_AT
 	select NET_OFFLOAD
 	help
 	  UART AT offload driver for the GainSpan GS1500M Serial2WiFi module.
-	  Reuses the portable lib/wifi/gs1500m AT library for bring-up and
-	  association; exposes Zephyr wifi_mgmt. Socket offload is stubbed
-	  in v1 (-ENOTSUP).
+	  Reuses the portable lib/wifi/gs1500m AT library. Exposes Zephyr
+	  wifi_mgmt plus IPv4 TCP/UDP net_offload (client). Module DNSLOOKUP
+	  is available via gs1500m_dns_lookup(); listen/accept and TLS socket
+	  offload are not implemented yet.
 	  Enable the gs1500m DT node (status okay) from the application overlay.
 
 if WIFI_GS1500M_AT

@@ -1143,11 +1143,16 @@ static bool looks_like_ipv4(const char *s)
 
 static gs_msg_id_t dns_lookup_ipv4(const char *host, char *ip, size_t ip_len)
 {
+	return gs_wifi_dns_lookup(host, ip, ip_len);
+}
+
+gs_msg_id_t gs_wifi_dns_lookup(const char *host, char *ip, size_t ip_len)
+{
 	gs_msg_id_t id;
 	const char *blob;
 	const char *p;
 
-	if (!host || !ip || ip_len < 8U) {
+	if (!host || !host[0] || !ip || ip_len < 8U) {
 		return GS_MSG_INVALID_INPUT;
 	}
 	ip[0] = '\0';

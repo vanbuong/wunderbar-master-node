@@ -20,6 +20,7 @@
 
 #include "wb_wifi_cred.h"
 #include "wb_time.h"
+#include "gs1500m_api.h"
 
 LOG_MODULE_REGISTER(wb_wifi, LOG_LEVEL_INF);
 
@@ -217,22 +218,38 @@ static int smoke_tcp_one(const char *ip, uint16_t port, bool http_head)
 
 static void socket_smoke_tcp(void)
 {
+	char resolved[16];
+
 	/* Prefer HTTP; fall back to TCP/53 (often allowed when :80 is filtered). */
 	if (smoke_tcp_one("1.1.1.1", 80, true) == 0) {
 		LOG_INF("TCP smoke OK via 1.1.1.1:80");
-		return;
+	} else {
+		k_msleep(500);
+		if (smoke_tcp_one("8.8.8.8", 53, false) == 0) {
+			LOG_INF("TCP smoke OK via 8.8.8.8:53");
+		} else {
+			k_msleep(500);
+			if (smoke_tcp_one("208.67.222.222", 80, true) == 0) {
+				LOG_INF("TCP smoke OK via 208.67.222.222:80");
+			} else {
+				LOG_ERR("TCP smoke failed on all IP targets");
+			}
+		}
 	}
-	k_msleep(500);
-	if (smoke_tcp_one("8.8.8.8", 53, false) == 0) {
-		LOG_INF("TCP smoke OK via 8.8.8.8:53");
-		return;
+
+	/* Module AT+DNSLOOKUP → NCTCP (does not depend on UDP DNS offload). */
+	memset(resolved, 0, sizeof(resolved));
+	if (gs1500m_dns_lookup("example.com", resolved, sizeof(resolved)) == 0) {
+		LOG_INF("DNSLOOKUP example.com -> %s", resolved);
+		k_msleep(200);
+		if (smoke_tcp_one(resolved, 80, true) == 0) {
+			LOG_INF("TCP smoke OK via example.com (%s)", resolved);
+		} else {
+			LOG_WRN("TCP to resolved example.com failed");
+		}
+	} else {
+		LOG_WRN("DNSLOOKUP example.com failed");
 	}
-	k_msleep(500);
-	if (smoke_tcp_one("208.67.222.222", 80, true) == 0) {
-		LOG_INF("TCP smoke OK via 208.67.222.222:80");
-		return;
-	}
-	LOG_ERR("TCP smoke failed on all targets");
 }
 
 int main(void)
