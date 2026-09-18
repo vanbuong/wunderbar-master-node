@@ -47,6 +47,9 @@ apps/mcux_freertos_wifi/          FreeRTOS GS1500M WiFi demo (USB + RTT)
 lib/log/                          Portable wb_log module (level + backends)
 lib/wifi/gs1500m/                 Portable GS1500M Serial2WiFi AT library
 docs/gs1500m_pins.md              GS1500M UART/GPIO pin map
+docs/nrf51822_pins.md             nRF51822 ↔ MK24 SPI/GPIO pin map
+docs/nrf51822_master_plan.md      BLE Central + SPI slave firmware plan
+docs/zephyr_gs1500m_wifi_offload.md  Zephyr wifi_mgmt / net_offload notes
 tests/unity/                      Unity host tests (wb_log + AT parser)
 tests/ztest/wb_log/               Zephyr ztest suite for wb_log
 tests/ztest/gs1500m_at/           Zephyr ztest suite for AT parser
