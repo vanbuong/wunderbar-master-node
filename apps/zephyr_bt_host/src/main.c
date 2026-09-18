@@ -234,10 +234,40 @@ int main(void)
 	k_msleep(50);
 	(void)do_get_info();
 
+	/* Kick a BLE scan (auto-connect first WBS advertiser if present). */
+	{
+		wb_bt_frame_t tx;
+		wb_bt_frame_t rx;
+		uint8_t flags = 0x01; /* WB_BT_SCAN_FLAG_AUTO_CONNECT */
+
+		wb_bt_frame_make(&tx, WB_BT_TYPE_CMD, m_host_seq++,
+				 WB_BT_CMD_SCAN_START, &flags, 1);
+		if (bt_xfer(&tx, &rx) == 0) {
+			log_frame("TX", &tx);
+			log_frame("RX", &rx);
+			LOG_INF("issued SCAN_START (auto-connect)");
+		}
+	}
+
 	while (1) {
 		ready = gpio_pin_get_dt(&bt_ready);
 		LOG_INF("poll: ready=%d — PING", ready);
 		(void)do_ping();
+		/* Drain any EVT/DATA the nRF queued while we slept. */
+		{
+			wb_bt_frame_t rx;
+
+			for (int i = 0; i < 4; i++) {
+				if (bt_xfer_idle(&rx) < 0) {
+					break;
+				}
+				if (wb_bt_frame_valid(&rx) &&
+				    (rx.type == WB_BT_TYPE_EVT ||
+				     rx.type == WB_BT_TYPE_DATA)) {
+					log_frame("RX", &rx);
+				}
+			}
+		}
 		k_msleep(2000);
 	}
 

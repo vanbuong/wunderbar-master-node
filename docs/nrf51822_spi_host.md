@@ -57,16 +57,29 @@ Shared C header: `lib/bt/include/wb_bt_frame.h`.
 
 | Opcode | Name | Payload |
 |--------|------|---------|
-| 0x01 | `GET_INFO` | empty → RSP: fw version string / caps |
-| 0x02 | `SCAN_START` | optional filter |
+| 0x01 | `GET_INFO` | empty → RSP: caps + fw id string |
+| 0x02 | `SCAN_START` | optional `payload[0]` flags (`WB_BT_SCAN_FLAG_AUTO_CONNECT`) |
 | 0x03 | `SCAN_STOP` | empty |
-| 0x04 | `CONNECT` | 6-byte peer addr + addr type |
-| 0x05 | `DISCONNECT` | `sensor_id` |
-| 0x06 | `SET_SENSOR_CFG` | sensor-specific |
+| 0x04 | `CONNECT` | `addr_type(1)` + `addr(6)` |
+| 0x05 | `DISCONNECT` | empty (Phase 2 single link) |
+| 0x06 | `SET_SENSOR_CFG` | sensor-specific (Phase 3+) |
+
+RSP for these CMDs: `payload[0] = WB_BT_ERR_*`.
+
+## `EVT.field_id` (nRF → host)
+
+| Code | Name | Payload |
+|------|------|---------|
+| 0x01 | `SCAN_REPORT` | `addr_type(1)` + `addr(6)` + `rssi(1 signed)` |
+| 0x02 | `CONNECTED` | `addr_type(1)` + `addr(6)` |
+| 0x03 | `DISCONNECTED` | `reason(1)` |
+| 0x04 | `READY` | empty (GATT discovered, notify enabled) |
+
+`DATA` frames carry notify bytes (`sensor_id=0`, `field_id=0x0002` data UUID).
 
 ## Sensor IDs (greenfield)
 
-Assign when GATT services are defined (temp, motion, light, …). `0xFF` = N/A.
+Phase 2 uses `sensor_id=0` for the single link. `0xFF` = N/A / scan.
 
 ## Ready / flow
 

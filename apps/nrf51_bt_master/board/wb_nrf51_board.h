@@ -9,6 +9,7 @@
 #define WB_NRF51_BOARD_H
 
 #include "nrf.h"
+#include "nrf_clock.h"
 
 /* SPI slave toward MK24 */
 #define WB_PIN_SPIS_MISO   0   /* P0.00 */
@@ -22,6 +23,13 @@
 
 /* Status LED (active high) */
 #define WB_PIN_LED         29  /* P0.29 */
+
+/* LF crystal on P0.26/P0.27 (see docs/nrf51822_pins.md). */
+#define NRF_CLOCK_LFCLKSRC                                                         \
+	{                                                                          \
+		.source = NRF_CLOCK_LF_SRC_XTAL, .rc_ctiv = 0, .rc_temp_ctiv = 0,  \
+		.xtal_accuracy = NRF_CLOCK_LF_XTAL_ACCURACY_20_PPM                 \
+	}
 
 #define WB_LED_ON()   do { NRF_GPIO->OUTSET = (1u << WB_PIN_LED); } while (0)
 #define WB_LED_OFF()  do { NRF_GPIO->OUTCLR = (1u << WB_PIN_LED); } while (0)

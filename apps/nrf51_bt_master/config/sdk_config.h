@@ -1,12 +1,9 @@
-/* Minimal sdk_config for Phase 0 (SPIS + SEGGER RTT, no SoftDevice).
- * Nordic drivers expect this filename as sdk_config.h.
- */
+/* sdk_config for Phase 2: SPIS + S130 Central + SEGGER RTT */
 
 #ifndef SDK_CONFIG_H
 #define SDK_CONFIG_H
 
 #define NRF_LOG_ENABLED 0
-/* Nordic's SEGGER_RTT_printf.c is compiled only when this is 1. */
 #define NRF_LOG_USES_RTT 1
 
 #define PERIPHERAL_RESOURCE_SHARING_ENABLED 0
@@ -31,10 +28,15 @@
 #define UART_ENABLED 0
 #define APP_UART_ENABLED 0
 
+#define BLE_DB_DISCOVERY_ENABLED 1
+#define BLE_NUS_C_ENABLED 0
+#define BLE_NUS_ENABLED 0
+#define PEER_MANAGER_ENABLED 0
+#define FSTORAGE_ENABLED 0
+
 #define NRF_SDH_ENABLED 0
 #define NRF_SECTION_ITER_ENABLED 0
 
-/* SEGGER RTT (used via wb_rtt.h / SEGGER_RTT_printf) */
 #define SEGGER_RTT_CONFIG_BUFFER_SIZE_UP 512
 #define SEGGER_RTT_CONFIG_MAX_NUM_UP_BUFFERS 2
 #define SEGGER_RTT_CONFIG_BUFFER_SIZE_DOWN 16

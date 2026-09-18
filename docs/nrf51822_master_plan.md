@@ -50,15 +50,18 @@ See [`nrf51822_pins.md`](nrf51822_pins.md). Summary:
 └─────────────────────────────────────────┘
 ```
 
-## GATT (greenfield sketch)
+## GATT (greenfield)
 
-Define later as 128-bit vendor UUIDs under a single primary service per sensor type, e.g.:
+Vendor base + 16-bit shorts in `lib/bt/include/wb_bt_gatt.h`:
 
-- Device Info (name, fw, battery)
-- Sensor Data (notify characteristic, packed samples)
-- Sensor Config (write)
+| Role | Short UUID | Notes |
+|------|------------|-------|
+| Service | `0x0001` | WBS primary service |
+| Data | `0x0002` | Notify (sensor → central) |
+| Config | `0x0003` | Write (central → sensor) |
 
-Central discovers by service UUID filter, not legacy names/passkeys.
+128-bit form: `57420001-4253-1000-8000-00805f9b34fb` (service). Central filters
+advertisers that include this service UUID.
 
 ## Phased delivery
 
@@ -70,14 +73,16 @@ Central discovers by service UUID filter, not legacy names/passkeys.
 - **SEGGER RTT** logging on BT SWD (`WB_RTT_PRINTF`)
 - Build against external `NRF5_SDK_ROOT` (12.1.0); CI with GCC 10.3.1
 
-### Phase 1 — SPI host protocol (current)
+### Phase 1 — SPI host protocol ✓
 - Full `wb_bt_frame` TX queue, CRC check, `PING`/`PONG`/`CMD`/`RSP`
 - `GET_INFO` RSP with caps + fw id
 - MK24 Zephyr SPI master stub: `apps/zephyr_bt_host/` + board SPI0 PTA14–17
 
-### Phase 2 — BLE Central single slave
-- S130 init, scan, connect to one test peripheral (nRF DK or custom sensor)
-- Forward notify payload as `DATA` frames over SPI
+### Phase 2 — BLE Central single slave (current)
+- SoftDevice **S130** init (1 central link), greenfield WBS GATT client
+- Host CMDs: `SCAN_START`/`STOP`, `CONNECT`, `DISCONNECT`
+- Scan reports / link events as `EVT`; notifies as `DATA` over SPI
+- UUID: see `lib/bt/include/wb_bt_gatt.h`
 
 ### Phase 3 — Multi-sensor
 - Up to N concurrent links (S130 budget vs 16 KB RAM)
@@ -98,10 +103,9 @@ export PATH="$PWD/.deps/gcc-arm-none-eabi-10.3-2021.10/bin:$PATH"
 export NRF5_SDK_ROOT=$PWD/.deps/nRF5_SDK_12.1.0
 
 cd apps/nrf51_bt_master
-make          # builds Phase 0 app
-# SoftDevice once:
-# nrfjprog -f nrf51 --program $NRF5_SDK_ROOT/components/softdevice/s130/hex/s130_*.hex --chiperase
-# make flash
+make          # builds Phase 2 app (S130)
+make flash_sd # SoftDevice once
+make flash
 ```
 
 SoftDevice hex must match the linker script (`s130_nrf51_2.0.1` with SDK 12.1).

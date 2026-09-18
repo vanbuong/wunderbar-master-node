@@ -1,4 +1,4 @@
-# Build Phase 0 nRF51822 app against nRF5 SDK 12.1.0
+# Build Phase 2 nRF51822 app against nRF5 SDK 12.1.0 + SoftDevice S130
 #   export NRF5_SDK_ROOT=/path/to/nRF5_SDK_12.1.0
 #   make
 
@@ -16,13 +16,13 @@ OBJCOPY          := $(PREFIX)objcopy
 SIZE             := $(PREFIX)size
 
 WB_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
-
-# SDK 12.1 paths (no SoftDevice for Phase 0)
-SDK := $(NRF5_SDK_ROOT)
+SDK     := $(NRF5_SDK_ROOT)
 
 SRC_FILES := \
   src/main.c \
   src/wb_txq.c \
+  src/wb_sensor_c.c \
+  src/wb_ble_central.c \
   $(SDK)/components/libraries/util/app_error.c \
   $(SDK)/components/libraries/util/app_error_weak.c \
   $(SDK)/components/libraries/util/app_util_platform.c \
@@ -31,8 +31,9 @@ SRC_FILES := \
   $(SDK)/components/drivers_nrf/common/nrf_drv_common.c \
   $(SDK)/components/drivers_nrf/clock/nrf_drv_clock.c \
   $(SDK)/components/drivers_nrf/spi_slave/nrf_drv_spis.c \
-  $(SDK)/components/drivers_nrf/nrf_soc_nosd/nrf_nvic.c \
-  $(SDK)/components/drivers_nrf/nrf_soc_nosd/nrf_soc.c \
+  $(SDK)/components/ble/common/ble_srv_common.c \
+  $(SDK)/components/ble/ble_db_discovery/ble_db_discovery.c \
+  $(SDK)/components/softdevice/common/softdevice_handler/softdevice_handler.c \
   $(SDK)/external/segger_rtt/SEGGER_RTT.c \
   $(SDK)/external/segger_rtt/SEGGER_RTT_printf.c \
   $(SDK)/components/toolchain/system_nrf51.c \
@@ -41,6 +42,7 @@ SRC_FILES := \
 INC := \
   -Iboard \
   -Iconfig \
+  -Isrc \
   -I$(WB_ROOT)/lib/bt/include \
   -I$(SDK)/components/device \
   -I$(SDK)/components/toolchain \
@@ -51,28 +53,36 @@ INC := \
   -I$(SDK)/components/drivers_nrf/delay \
   -I$(SDK)/components/drivers_nrf/spi_slave \
   -I$(SDK)/components/drivers_nrf/hal \
-  -I$(SDK)/components/drivers_nrf/nrf_soc_nosd \
   -I$(SDK)/components/libraries/util \
   -I$(SDK)/components/libraries/hardfault \
   -I$(SDK)/components/libraries/log \
   -I$(SDK)/components/libraries/log/src \
-  -I$(SDK)/components/boards \
+  -I$(SDK)/components/libraries/experimental_section_vars \
+  -I$(SDK)/components/libraries/fstorage \
+  -I$(SDK)/components/ble/common \
+  -I$(SDK)/components/ble/ble_db_discovery \
+  -I$(SDK)/components/softdevice/common/softdevice_handler \
   -I$(SDK)/external/segger_rtt \
   -I$(SDK)/components/softdevice/s130/headers \
   -I$(SDK)/components/softdevice/s130/headers/nrf51
 
-# Use blank (no SoftDevice) xxaa linker from SDK peripheral examples
-LINKER_SCRIPT := $(SDK)/components/toolchain/gcc/nrf51_xxaa.ld
+LINKER_SCRIPT := board/wb_nrf51_s130.ld
+SD_HEX := $(SDK)/components/softdevice/s130/hex/s130_nrf51_2.0.1_softdevice.hex
 
 CFLAGS := -mcpu=cortex-m0 -mthumb -mabi=aapcs \
   -Wall -Werror -O2 -g3 \
-  -DNRF51 -DNRF51822 -DBOARD_PCA10028 -DNRF_SD_BLE_API_VERSION=2 \
+  -DNRF51 -DNRF51822 -DBOARD_PCA10028 \
+  -DSOFTDEVICE_PRESENT -DS130 -DBLE_STACK_SUPPORT_REQD -DSWI_DISABLE0 \
+  -DNRF_SD_BLE_API_VERSION=2 \
   -D__HEAP_SIZE=0 -D__STACK_SIZE=2048 \
   -DNRF_SPIS_ENABLED=1 -DNRF_LOG_USES_RTT=1 \
   $(INC)
 
 ASMFLAGS := -mcpu=cortex-m0 -mthumb -x assembler-with-cpp \
-  -DNRF51 -DNRF51822 $(INC)
+  -DNRF51 -DNRF51822 -DSOFTDEVICE_PRESENT -DS130 \
+  -DBLE_STACK_SUPPORT_REQD -DSWI_DISABLE0 \
+  -D__HEAP_SIZE=0 -D__STACK_SIZE=2048 \
+  $(INC)
 
 LDFLAGS := -mcpu=cortex-m0 -mthumb -mabi=aapcs \
   -L$(SDK)/components/toolchain/gcc \
@@ -89,7 +99,7 @@ vpath %.c $(sort $(dir $(SRC_FILES)))
 vpath %.S $(SDK)/components/toolchain/gcc
 vpath %.s $(SDK)/components/toolchain/gcc
 
-.PHONY: all clean flash size
+.PHONY: all clean flash flash_sd size
 
 all: $(OUTPUT_DIR)/$(PROJECT_NAME).hex size
 
@@ -110,6 +120,9 @@ $(OUTPUT_DIR)/$(PROJECT_NAME).hex: $(OUTPUT_DIR)/$(PROJECT_NAME).out
 
 size: $(OUTPUT_DIR)/$(PROJECT_NAME).out
 	$(SIZE) $<
+
+flash_sd:
+	nrfjprog -f nrf51 --program $(SD_HEX) --chiperase
 
 flash: $(OUTPUT_DIR)/$(PROJECT_NAME).hex
 	nrfjprog -f nrf51 --program $< --sectorerase -r
