@@ -10,6 +10,7 @@
 #   ./scripts/build.sh wifi         # WiFi images (both OS × USB/RTT)
 #   ./scripts/build.sh zephyr-wifi
 #   ./scripts/build.sh freertos-wifi
+#   ./scripts/build.sh zephyr-bt     # MK24 SPI host stub toward nRF
 #   ./scripts/build.sh test         # Unity + ztest (wb_log + gs1500m AT)
 #
 # Zephyr: west init -l requires a sibling workspace whose project directory
@@ -126,6 +127,20 @@ build_zephyr_wifi() {
     "${ZEPHYR_WIFI_RTT_BUILD_DIR:-$ROOT/build-zephyr-wifi-rtt}"
 }
 
+build_zephyr_bt() {
+  command -v west >/dev/null || die "west not found (pip install west)"
+
+  if [[ -d /opt/zephyr-sdk-1.0.1 ]]; then
+    export ZEPHYR_SDK_INSTALL_DIR="${ZEPHYR_SDK_INSTALL_DIR:-/opt/zephyr-sdk-1.0.1}"
+    export ZEPHYR_TOOLCHAIN_VARIANT="${ZEPHYR_TOOLCHAIN_VARIANT:-zephyr}"
+  fi
+
+  ensure_west_workspace
+  build_zephyr_app apps/zephyr_bt_host \
+    "${ZEPHYR_BT_BUILD_DIR:-$ROOT/build-zephyr-bt}" \
+    "${ZEPHYR_BT_RTT_BUILD_DIR:-$ROOT/build-zephyr-bt-rtt}"
+}
+
 build_freertos_app() {
   local app_dir="$1"
   local out_usb="$2"
@@ -225,6 +240,9 @@ case "$TARGET" in
   zephyr-wifi)
     build_zephyr_wifi
     ;;
+  zephyr-bt|zephyr-bt-host)
+    build_zephyr_bt
+    ;;
   freertos-wifi|mcux-wifi)
     build_freertos_wifi
     ;;
@@ -232,6 +250,6 @@ case "$TARGET" in
     run_tests
     ;;
   *)
-    die "unknown target '$TARGET' (use: all | zephyr | freertos | wifi | zephyr-wifi | freertos-wifi | test)"
+    die "unknown target '$TARGET' (use: all | zephyr | freertos | wifi | zephyr-wifi | freertos-wifi | zephyr-bt | test)"
     ;;
 esac

@@ -73,8 +73,18 @@ target_include_directories(test_gs1500m_wifi PRIVATE
   ${UNITY_PATH}/src
 )
 
+add_executable(test_wb_bt_frame
+  test_wb_bt_frame.c
+  ${UNITY_PATH}/src/unity.c
+)
+target_include_directories(test_wb_bt_frame PRIVATE
+  ${ROOT}/lib/bt/include
+  ${UNITY_PATH}/src
+)
+
 enable_testing()
 add_test(NAME wb_log_unity COMMAND test_wb_log)
 add_test(NAME wb_time_unity COMMAND test_wb_time)
 add_test(NAME gs1500m_at_unity COMMAND test_gs1500m_at)
 add_test(NAME gs1500m_wifi_unity COMMAND test_gs1500m_wifi)
+add_test(NAME wb_bt_frame_unity COMMAND test_wb_bt_frame)

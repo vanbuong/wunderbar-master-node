@@ -57,6 +57,22 @@ jobs:
                -DEXTRA_CONF_FILE=rtt.conf \
                -DEXTRA_DTC_OVERLAY_FILE=rtt.overlay
 
+      - name: Build BT host USB CDC
+        run: |
+          west build -b wunderbar_master/mk64f12 \
+            wunderbar-master-node/apps/zephyr_bt_host \
+            -d build-zephyr-bt \
+            -- -DBOARD_ROOT="${GITHUB_WORKSPACE}/wunderbar-master-node"
+
+      - name: Build BT host SEGGER RTT
+        run: |
+          west build -b wunderbar_master/mk64f12 \
+            wunderbar-master-node/apps/zephyr_bt_host \
+            -d build-zephyr-bt-rtt \
+            -- -DBOARD_ROOT="${GITHUB_WORKSPACE}/wunderbar-master-node" \
+               -DEXTRA_CONF_FILE=rtt.conf \
+               -DEXTRA_DTC_OVERLAY_FILE=rtt.overlay
+
       - name: ztest wb_log
         run: |
           west build -b unit_testing \
@@ -113,6 +129,24 @@ jobs:
             build-zephyr-wifi-rtt/zephyr/zephyr.elf
             build-zephyr-wifi-rtt/zephyr/zephyr.bin
             build-zephyr-wifi-rtt/zephyr/zephyr.hex
+
+      - name: Upload BT host USB ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: zephyr-bt-host-usb
+          path: |
+            build-zephyr-bt/zephyr/zephyr.elf
+            build-zephyr-bt/zephyr/zephyr.bin
+            build-zephyr-bt/zephyr/zephyr.hex
+
+      - name: Upload BT host RTT ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: zephyr-bt-host-rtt
+          path: |
+            build-zephyr-bt-rtt/zephyr/zephyr.elf
+            build-zephyr-bt-rtt/zephyr/zephyr.bin
+            build-zephyr-bt-rtt/zephyr/zephyr.hex
 
   freertos:
     name: FreeRTOS blinky + WiFi
@@ -203,3 +237,53 @@ jobs:
             build-freertos-wifi-rtt/wunderbar_freertos_wifi.elf
             build-freertos-wifi-rtt/wunderbar_freertos_wifi.bin
             build-freertos-wifi-rtt/wunderbar_freertos_wifi.hex
+
+  nrf51:
+    name: nRF51 BT master + sensor
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install unzip
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends unzip
+
+      - name: Fetch ARM GCC 10.3.1
+        run: ./scripts/fetch_arm_gcc_10_3_1.sh "$PWD/.deps/gcc-arm-none-eabi-10.3-2021.10"
+
+      - name: Fetch nRF5 SDK 12.1.0
+        run: ./scripts/fetch_nrf5_sdk.sh "$PWD/.deps/nRF5_SDK_12.1.0"
+
+      - name: Build nRF51 BT master
+        run: |
+          export PATH="$PWD/.deps/gcc-arm-none-eabi-10.3-2021.10/bin:$PATH"
+          arm-none-eabi-gcc --version | head -1
+          make -C apps/nrf51_bt_master \
+            NRF5_SDK_ROOT="$PWD/.deps/nRF5_SDK_12.1.0" \
+            GNU_INSTALL_ROOT="$PWD/.deps/gcc-arm-none-eabi-10.3-2021.10/bin/"
+
+      - name: Build nRF51 BT sensor
+        run: |
+          export PATH="$PWD/.deps/gcc-arm-none-eabi-10.3-2021.10/bin:$PATH"
+          make -C apps/nrf51_bt_sensor \
+            NRF5_SDK_ROOT="$PWD/.deps/nRF5_SDK_12.1.0" \
+            GNU_INSTALL_ROOT="$PWD/.deps/gcc-arm-none-eabi-10.3-2021.10/bin/"
+
+      - name: Upload nRF51 ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: nrf51-bt-master
+          path: |
+            apps/nrf51_bt_master/build/wb_nrf51_bt_master.out
+            apps/nrf51_bt_master/build/wb_nrf51_bt_master.hex
+            apps/nrf51_bt_master/build/wb_nrf51_bt_master.map
+
+      - name: Upload nRF51 sensor ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: nrf51-bt-sensor
+          path: |
+            apps/nrf51_bt_sensor/build/wb_nrf51_bt_sensor.out
+            apps/nrf51_bt_sensor/build/wb_nrf51_bt_sensor.hex
+            apps/nrf51_bt_sensor/build/wb_nrf51_bt_sensor.map

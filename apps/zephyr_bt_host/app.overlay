@@ -1,0 +1,11 @@
+/*
+ * Enable SPI0 + nRF51822 child for the BT host stub.
+ */
+
+&spi0 {
+	status = "okay";
+};
+
+&bt_nrf51822_spi {
+	status = "okay";
+};
