@@ -239,7 +239,7 @@ jobs:
             build-freertos-wifi-rtt/wunderbar_freertos_wifi.hex
 
   nrf51:
-    name: nRF51 BT master (Phase 0)
+    name: nRF51 BT master + sensor
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -263,6 +263,13 @@ jobs:
             NRF5_SDK_ROOT="$PWD/.deps/nRF5_SDK_12.1.0" \
             GNU_INSTALL_ROOT="$PWD/.deps/gcc-arm-none-eabi-10.3-2021.10/bin/"
 
+      - name: Build nRF51 BT sensor
+        run: |
+          export PATH="$PWD/.deps/gcc-arm-none-eabi-10.3-2021.10/bin:$PATH"
+          make -C apps/nrf51_bt_sensor \
+            NRF5_SDK_ROOT="$PWD/.deps/nRF5_SDK_12.1.0" \
+            GNU_INSTALL_ROOT="$PWD/.deps/gcc-arm-none-eabi-10.3-2021.10/bin/"
+
       - name: Upload nRF51 ELF
         uses: actions/upload-artifact@v4
         with:
@@ -271,3 +278,12 @@ jobs:
             apps/nrf51_bt_master/build/wb_nrf51_bt_master.out
             apps/nrf51_bt_master/build/wb_nrf51_bt_master.hex
             apps/nrf51_bt_master/build/wb_nrf51_bt_master.map
+
+      - name: Upload nRF51 sensor ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: nrf51-bt-sensor
+          path: |
+            apps/nrf51_bt_sensor/build/wb_nrf51_bt_sensor.out
+            apps/nrf51_bt_sensor/build/wb_nrf51_bt_sensor.hex
+            apps/nrf51_bt_sensor/build/wb_nrf51_bt_sensor.map

@@ -78,11 +78,12 @@ advertisers that include this service UUID.
 - `GET_INFO` RSP with caps + fw id
 - MK24 Zephyr SPI master stub: `apps/zephyr_bt_host/` + board SPI0 PTA14–17
 
-### Phase 2 — BLE Central single slave (current)
+### Phase 2 — BLE Central single slave ✓
 - SoftDevice **S130** init (1 central link), greenfield WBS GATT client
 - Host CMDs: `SCAN_START`/`STOP`, `CONNECT`, `DISCONNECT`
 - Scan reports / link events as `EVT`; notifies as `DATA` over SPI
 - UUID: see `lib/bt/include/wb_bt_gatt.h`
+- Matching peripheral: `apps/nrf51_bt_sensor` (MPU I2C → roll/pitch/yaw + motion)
 
 ### Phase 3 — Multi-sensor
 - Up to N concurrent links (S130 budget vs 16 KB RAM)

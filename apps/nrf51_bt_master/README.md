@@ -36,9 +36,9 @@ and `lib/bt/include/wb_bt_gatt.h`.
 
 ## Test peripheral
 
-Advertise the WBS service UUID (`57420001-4253-1000-8000-00805f9b34fb`) with a
-notify characteristic `0x0002`. A Nordic DK custom peripheral or a future
-`apps/nrf51_bt_sensor` can fill this role.
+Use `apps/nrf51_bt_sensor` (MPU I2C + roll/pitch/yaw + motion notify) on a
+second nRF51822, or any peripheral that advertises the WBS service UUID
+(`57420001-4253-1000-8000-00805f9b34fb`) with notify characteristic `0x0002`.
 
 ## Pins / RTT
 
