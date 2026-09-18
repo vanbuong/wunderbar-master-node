@@ -85,12 +85,16 @@ Central discovers by service UUID filter, not legacy names/passkeys.
 ### Phase 4 — Polish
 - LED codes, watchdog, DFU strategy
 
-## Build / flash (SDK 12.1.0)
+## Build / flash (SDK 12.1.0 + GCC 10.3.1)
+
+CI builds this with GNU Arm Embedded **10.3-2021.10** (GCC 10.3.1). Local:
 
 ```bash
-# Place or symlink SDK (contains components/, examples/, …)
-export NRF5_SDK_ROOT=/path/to/nRF5_SDK_12.1.0
-export GNU_INSTALL_ROOT=/usr/  # arm-none-eabi-gcc
+# From repo root
+./scripts/fetch_arm_gcc_10_3_1.sh
+./scripts/fetch_nrf5_sdk.sh
+export PATH="$PWD/.deps/gcc-arm-none-eabi-10.3-2021.10/bin:$PATH"
+export NRF5_SDK_ROOT=$PWD/.deps/nRF5_SDK_12.1.0
 
 cd apps/nrf51_bt_master
 make          # builds Phase 0 app

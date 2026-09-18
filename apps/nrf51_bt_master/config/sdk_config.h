@@ -1,10 +1,15 @@
-# Minimal sdk_config for Phase 0 (SPIS + SEGGER RTT, no SoftDevice)
-# Include as sdk_config.h (Nordic drivers expect this name).
+/* Minimal sdk_config for Phase 0 (SPIS + SEGGER RTT, no SoftDevice).
+ * Nordic drivers expect this filename as sdk_config.h.
+ */
 
 #ifndef SDK_CONFIG_H
 #define SDK_CONFIG_H
 
 #define NRF_LOG_ENABLED 0
+/* Nordic's SEGGER_RTT_printf.c is compiled only when this is 1. */
+#define NRF_LOG_USES_RTT 1
+
+#define PERIPHERAL_RESOURCE_SHARING_ENABLED 0
 
 #define CLOCK_ENABLED 1
 #define CLOCK_CONFIG_XTAL_FREQ NRF_CLOCK_XTALFREQ_Default
@@ -12,8 +17,14 @@
 #define CLOCK_CONFIG_IRQ_PRIORITY 3
 
 #define SPIS_ENABLED 1
-#define SPIS1_ENABLED 1
 #define SPIS_DEFAULT_CONFIG_IRQ_PRIORITY 3
+#define SPIS_DEFAULT_MODE 0
+#define SPIS_DEFAULT_BIT_ORDER 0
+#define SPIS_DEFAULT_DEF 255
+#define SPIS_DEFAULT_ORC 255
+#define SPIS0_ENABLED 0
+#define SPIS1_ENABLED 1
+#define SPIS2_ENABLED 0
 #define SPIS_CONFIG_LOG_ENABLED 0
 
 #define GPIOTE_ENABLED 0

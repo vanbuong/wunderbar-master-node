@@ -47,6 +47,7 @@ INC := \
   -I$(SDK)/components/toolchain/gcc \
   -I$(SDK)/components/drivers_nrf/clock \
   -I$(SDK)/components/drivers_nrf/common \
+  -I$(SDK)/components/drivers_nrf/delay \
   -I$(SDK)/components/drivers_nrf/spi_slave \
   -I$(SDK)/components/drivers_nrf/hal \
   -I$(SDK)/components/drivers_nrf/nrf_soc_nosd \
@@ -66,7 +67,7 @@ CFLAGS := -mcpu=cortex-m0 -mthumb -mabi=aapcs \
   -Wall -Werror -O2 -g3 \
   -DNRF51 -DNRF51822 -DBOARD_PCA10028 -DNRF_SD_BLE_API_VERSION=2 \
   -D__HEAP_SIZE=0 -D__STACK_SIZE=2048 \
-  -DNRF_SPIS_ENABLED=1 \
+  -DNRF_SPIS_ENABLED=1 -DNRF_LOG_USES_RTT=1 \
   $(INC)
 
 ASMFLAGS := -mcpu=cortex-m0 -mthumb -x assembler-with-cpp \

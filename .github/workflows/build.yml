@@ -203,3 +203,37 @@ jobs:
             build-freertos-wifi-rtt/wunderbar_freertos_wifi.elf
             build-freertos-wifi-rtt/wunderbar_freertos_wifi.bin
             build-freertos-wifi-rtt/wunderbar_freertos_wifi.hex
+
+  nrf51:
+    name: nRF51 BT master (Phase 0)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install unzip
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends unzip
+
+      - name: Fetch ARM GCC 10.3.1
+        run: ./scripts/fetch_arm_gcc_10_3_1.sh "$PWD/.deps/gcc-arm-none-eabi-10.3-2021.10"
+
+      - name: Fetch nRF5 SDK 12.1.0
+        run: ./scripts/fetch_nrf5_sdk.sh "$PWD/.deps/nRF5_SDK_12.1.0"
+
+      - name: Build nRF51 BT master
+        run: |
+          export PATH="$PWD/.deps/gcc-arm-none-eabi-10.3-2021.10/bin:$PATH"
+          arm-none-eabi-gcc --version | head -1
+          make -C apps/nrf51_bt_master \
+            NRF5_SDK_ROOT="$PWD/.deps/nRF5_SDK_12.1.0" \
+            GNU_INSTALL_ROOT="$PWD/.deps/gcc-arm-none-eabi-10.3-2021.10/bin/"
+
+      - name: Upload nRF51 ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: nrf51-bt-master
+          path: |
+            apps/nrf51_bt_master/build/wb_nrf51_bt_master.out
+            apps/nrf51_bt_master/build/wb_nrf51_bt_master.hex
+            apps/nrf51_bt_master/build/wb_nrf51_bt_master.map
